@@ -16,11 +16,9 @@ def connect(config: ConnConfig):
         do_something
     etc.
 """
-# TODO(Pawel): Pytype raises errors when importing hydra/omegaconf.
-# We will able to remove these comments when this issue is fixed.
-import hydra  # pytype: disable=import-error
-import omegaconf  # pytype: disable=import-error
-from hydra.core.config_store import ConfigStore  # pytype: disable=import-error
+import hydra
+import omegaconf
+from hydra.core.config_store import ConfigStore
 
 _CS = ConfigStore.instance()
 _MAIN_CONFIG: str = "MainConfig"
