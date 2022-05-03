@@ -23,7 +23,7 @@ jobs:
       - name: Install the module
         run: pip install ".[test]"
       - name: Run unit tests
-        run: pytest
+        run: python -m pytest
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
       - name: Run Flake8 check
