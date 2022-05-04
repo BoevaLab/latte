@@ -7,8 +7,8 @@ Data analysis of latent representations.
 Clone the repository:
 
 ```bash
-$ git clone git@github.com:BoevaLab/CanSig.git
-$ cd CanSig
+$ git clone git@github.com:BoevaLab/latte.git
+$ cd latte
 ```
 
 At this point it may be beneficial to create a new [Python virtual environment](https://docs.python.org/3.8/tutorial/venv.html). There are multiple solutions for this step, including [Miniconda](https://docs.conda.io/en/latest/miniconda.html). We aim at Python 3.8 version and above.
