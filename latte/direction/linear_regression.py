@@ -7,7 +7,7 @@ from sklearn.linear_model import LinearRegression
 
 @dataclasses.dataclass
 class OptimizationResult:
-    value: float
+    r2: float
     direction: np.ndarray
     intercept: float
 
@@ -27,4 +27,4 @@ def find_best_direction(points: np.ndarray, scores: Sequence[float]) -> Optimiza
     """
     lr = LinearRegression()
     lr.fit(points, scores)
-    return OptimizationResult(value=lr.score(points, scores), direction=lr.coef_, intercept=lr.intercept_)
+    return OptimizationResult(r2=lr.score(points, scores), direction=lr.coef_, intercept=lr.intercept_)

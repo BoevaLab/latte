@@ -89,12 +89,12 @@ def test_find_gradient_linear_regression(true_direction: Sequence[float]) -> Non
 
     predicted_scores = np.einsum("ij,j->i", data, optimization_result.direction) + optimization_result.intercept
 
-    assert optimization_result.value == pytest.approx(r2_score(scores, predicted_scores))
+    assert optimization_result.r2 == pytest.approx(r2_score(scores, predicted_scores))
 
     assert true_mse == pytest.approx(mean_squared_error(scores, predicted_scores))
 
     assert true_r_sq == pytest.approx(
-        optimization_result.value, 0.02
+        optimization_result.r2, 0.02
     ), f"True vector: {unit_true_direction}. Found vector: {optimization_result.direction}."
 
 
