@@ -2,6 +2,7 @@ from typing import Protocol
 
 import numpy as np
 from scipy import stats
+from sklearn.feature_selection import mutual_info_regression
 
 
 class SimilarityMetric(Protocol):
@@ -44,8 +45,21 @@ class MutualInformation(SimilarityMetric):
     which matches the interface.
     """
 
+    def __init__(self, n_neighbors: int = 5, random_state: int = 123) -> None:
+        self._n_neighbors = n_neighbors
+        self._random_state = random_state
+
     def score(self, projections: np.ndarray, scores: np.ndarray) -> float:
-        raise NotImplementedError
+        if not (projections.shape == scores.shape == (len(projections),)):
+            raise ValueError(f"Shape mismatch: projections {projections.shape} != " f"scores {scores.shape}.")
+        # mutual_info expects 2D features and returns an array of values, 1 for each feature (1 in our case)
+        return mutual_info_regression(
+            projections.reshape((-1, 1)),
+            scores,
+            n_neighbors=self._n_neighbors,
+            discrete_features=False,
+            random_state=self._random_state,
+        )[0]
 
 
 class AxisMetric(Protocol):
@@ -94,7 +108,15 @@ class SpearmanCorrelationMetric(ProjectionAxisMetric):
 
 
 class MutualInformationMetric(ProjectionAxisMetric):
-    pass
+    """Mutual information metric between projections onto specified axis
+    and true generative factor scores.
+
+    See Also:
+        MutualInformation
+    """
+
+    def __init__(self, n_neighbors: int = 5, random_state: int = 128) -> None:
+        super().__init__(projection_metric=MutualInformation(n_neighbors=n_neighbors, random_state=random_state))
 
 
 def project(points: np.ndarray, vector: np.ndarray) -> np.ndarray:
