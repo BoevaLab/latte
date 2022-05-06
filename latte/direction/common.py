@@ -17,7 +17,7 @@ class SimilarityMetric(Protocol):
             scores: true generative factors values, shape (n_points,)
 
         Returns:
-            some measure of similarity between these two vectors, the, larger the better
+            some measure of similarity between these two vectors, the larger the better
 
         Note:
             This function does not need to be symmetric.
@@ -66,7 +66,7 @@ class AxisMetric(Protocol):
     """Interface for a method of finding the optimal 1D axis describing a given factor of variation."""
 
     def score(self, axis: np.ndarray, points: np.ndarray, scores: np.ndarray) -> float:
-        """Calculates the score of a given axis. The larger, the better.
+        """Calculates the score of a given axis. The larger the better.
 
         Args:
             axis: axis of variation, shape (n_dim,)
