@@ -25,6 +25,16 @@ class SimilarityMetric(Protocol):
         ...
 
 
+def _check_shape(projections: np.ndarray, scores: np.ndarray) -> None:
+    """Checks whether `projections` and `scores` are both of shape (n,).
+
+    Raises:
+        ValueError, if the shapes are wrong
+    """
+    if not (projections.shape == scores.shape == (len(projections),)):
+        raise ValueError(f"Shape mismatch: projections {projections.shape} != scores {scores.shape}.")
+
+
 class SpearmanCorrelation(SimilarityMetric):
     """Calculates the Spearman correlation.
 
@@ -33,9 +43,19 @@ class SpearmanCorrelation(SimilarityMetric):
     """
 
     def score(self, projections: np.ndarray, scores: np.ndarray) -> float:
-        if not (projections.shape == scores.shape == (len(projections),)):
-            raise ValueError(f"Shape mismatch: projections {projections.shape} != " f"scores {scores.shape}.")
+        _check_shape(projections=projections, scores=scores)
         return stats.spearmanr(projections, scores)[0]
+
+
+class KendallTau(SimilarityMetric):
+    """Calculates Kendall's tau.
+
+    It is a thin wraper around the respective SciPy's function.
+    """
+
+    def score(self, projections: np.ndarray, scores: np.ndarray) -> float:
+        _check_shape(projections=projections, scores=scores)
+        return stats.kendalltau(projections, scores)[0]
 
 
 class MutualInformation(SimilarityMetric):
@@ -50,8 +70,8 @@ class MutualInformation(SimilarityMetric):
         self._random_state = random_state
 
     def score(self, projections: np.ndarray, scores: np.ndarray) -> float:
-        if not (projections.shape == scores.shape == (len(projections),)):
-            raise ValueError(f"Shape mismatch: projections {projections.shape} != " f"scores {scores.shape}.")
+        _check_shape(projections=projections, scores=scores)
+
         # mutual_info expects 2D features and returns an array of values, 1 for each feature (1 in our case)
         return mutual_info_regression(
             projections.reshape((-1, 1)),
@@ -117,6 +137,14 @@ class MutualInformationMetric(ProjectionAxisMetric):
 
     def __init__(self, n_neighbors: int = 5, random_state: int = 128) -> None:
         super().__init__(projection_metric=MutualInformation(n_neighbors=n_neighbors, random_state=random_state))
+
+
+class KendallTauMetric(ProjectionAxisMetric):
+    """Kendall's tau coefficient between projections onto specified axis
+    and true generative factors."""
+
+    def __init__(self) -> None:
+        super().__init__(projection_metric=KendallTau())
 
 
 def project(points: np.ndarray, vector: np.ndarray) -> np.ndarray:
