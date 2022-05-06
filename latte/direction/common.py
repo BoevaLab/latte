@@ -2,6 +2,7 @@ from typing import Protocol
 
 import numpy as np
 from scipy import stats
+from sklearn.feature_selection import mutual_info_regression
 
 
 class SimilarityMetric(Protocol):
@@ -16,7 +17,7 @@ class SimilarityMetric(Protocol):
             scores: true generative factors values, shape (n_points,)
 
         Returns:
-            some measure of similarity between these two vectors, the larger the better
+            some measure of similarity between these two vectors, the, larger the better
 
         Note:
             This function does not need to be symmetric.
@@ -45,14 +46,17 @@ class MutualInformation(SimilarityMetric):
     """
 
     def score(self, projections: np.ndarray, scores: np.ndarray) -> float:
-        raise NotImplementedError
+        if not (projections.shape == scores.shape == (len(projections),)):
+            raise ValueError(f"Shape mismatch: projections {projections.shape} != " f"scores {scores.shape}.")
+        # mutual_info expects 2D features and returns an array of values, 1 for each feature (1 in our case)
+        return mutual_info_regression(projections.reshape((-1, 1)), scores)[0]
 
 
 class AxisMetric(Protocol):
     """Interface for a method of finding the optimal 1D axis describing a given factor of variation."""
 
     def score(self, axis: np.ndarray, points: np.ndarray, scores: np.ndarray) -> float:
-        """Calculates the score of a given axis. The larger the better.
+        """Calculates the score of a given axis. The larger, the better.
 
         Args:
             axis: axis of variation, shape (n_dim,)
@@ -94,7 +98,11 @@ class SpearmanCorrelationMetric(ProjectionAxisMetric):
 
 
 class MutualInformationMetric(ProjectionAxisMetric):
-    pass
+    """Mutual information metric between projections onto specified axis
+    and true generative factor scores."""
+
+    def __init__(self) -> None:
+        super().__init__(projection_metric=MutualInformation())
 
 
 def project(points: np.ndarray, vector: np.ndarray) -> np.ndarray:
