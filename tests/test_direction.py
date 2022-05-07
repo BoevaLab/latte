@@ -49,9 +49,7 @@ def test_find_gradient(true_direction: Sequence[float], metric: di.AxisMetric) -
     scores = score_according_to_gradient(direction=true_direction, points=data)
 
     # Retrieve the vector yielding best scores
-    optimization_result = di.random.find_best_direction(
-        points=data, scores=scores, metric=metric, budget=500, random_generator=5
-    )
+    optimization_result = di.optimization.optimize(points=data, scores=scores, metric=metric, budget=70, seed=10)
 
     true_value = metric.score(axis=true_direction, points=data, scores=scores)
 
@@ -61,7 +59,7 @@ def test_find_gradient(true_direction: Sequence[float], metric: di.AxisMetric) -
     )
 
     # Test whether the values at the true and found direction are comparable
-    assert true_value == pytest.approx(optimization_result.value, rel=0.1, abs=0.05), (
+    assert true_value == pytest.approx(optimization_result.value, rel=0.05, abs=0.05), (
         f"Value mismatch: {true_value} != {optimization_result.value}. "
         f"Vectors: true: {unit_true_direction} found: {optimization_result.direction}"
     )

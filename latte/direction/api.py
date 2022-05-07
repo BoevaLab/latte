@@ -1,5 +1,6 @@
 import latte.direction.random as random
 import latte.direction.linear_regression as linear_regression
+import latte.direction.optimization as optimization
 from latte.direction.common import (
     AxisMetric,
     KendallTauMetric,
@@ -11,6 +12,7 @@ from latte.direction.common import (
 
 __all__ = [
     "random",
+    "optimization",
     "linear_regression",
     "AxisMetric",
     "KendallTauMetric",

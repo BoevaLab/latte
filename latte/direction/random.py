@@ -1,3 +1,8 @@
+"""Random sampling of different directions.
+
+One can use this as a very simple (random) optimizer.
+For more sophisticated approaches, see `latte.direction.optimization`.
+"""
 import dataclasses
 from typing import NamedTuple, Sequence, Union
 
