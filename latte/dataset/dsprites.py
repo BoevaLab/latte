@@ -5,6 +5,7 @@ import requests
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
 from typing import Literal, Tuple, Union  # pytype: disable=not-supported-yet
+from enum import Enum
 
 import numpy as np
 
@@ -70,6 +71,15 @@ class DSpritesDataset:
     imgs: np.ndarray
     latents_values: np.ndarray
     latents_classes: np.ndarray
+
+
+class DSpritesFactor(Enum):
+    COLOR = 0
+    SHAPE = 1
+    SCALE = 2
+    ORIENTATION = 3
+    X = 4
+    Y = 5
 
 
 def _parse_metadata(data) -> DSpritesMetadata:
