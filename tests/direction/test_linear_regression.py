@@ -19,15 +19,14 @@ true_directions = [
     "true_direction",
     true_directions,
 )
-def test_find_gradient_linear_regression(true_direction: Sequence[float], auxiliary) -> None:
-    np.random.seed(42)
-
+def test_find_gradient_linear_regression(auxiliary, true_direction: Sequence[float]) -> None:
     n_dim = len(true_direction)
     true_direction = np.asarray(true_direction)
     unit_true_direction = true_direction / np.linalg.norm(true_direction)
 
-    # Square
-    data = np.random.uniform(low=-2.0, high=+2.0, size=(200, n_dim))
+    generator = np.random.default_rng(42)
+    data = auxiliary.create_data(n_dim=n_dim, n_points=200, seed=generator)
+
     # Assign the scores according to the direction that should be
     scores = auxiliary.score_according_to_gradient(direction=true_direction, points=data)
 

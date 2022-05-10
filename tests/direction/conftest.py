@@ -25,6 +25,10 @@ class Auxiliary:
         direction_vector = np.asarray(direction)
         return np.einsum("ij,j -> i", points, direction_vector)
 
+    def create_data(self, n_dim: int, n_points: int, seed) -> np.ndarray:
+        generator = np.random.default_rng(seed)
+        return generator.normal(0, 1, size=(n_points, n_dim))
+
 
 @pytest.fixture
 def auxiliary() -> Auxiliary:
