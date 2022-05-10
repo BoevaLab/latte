@@ -9,7 +9,7 @@ from typing import NamedTuple, Sequence, Union
 import numpy as np
 import numpy.typing as ntypes
 
-import latte.direction.common as common
+import latte.direction.metrics as common
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -109,7 +109,7 @@ def find_best_direction(
     scores: Sequence[float],
     metric: common.AxisMetric,
     budget: int = 200,
-    random_generator: Union[int, np.random.Generator] = 1,
+    seed: Union[int, np.random.Generator] = 1,
 ) -> OptimizationResult:
-    data = find_metric_distribution(points=points, scores=scores, metric=metric, budget=budget, seed=random_generator)
+    data = find_metric_distribution(points=points, scores=scores, metric=metric, budget=budget, seed=seed)
     return select_best_direction(data)

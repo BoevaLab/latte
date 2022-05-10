@@ -2,7 +2,7 @@
 import nevergrad as ng
 import numpy as np
 
-import latte.direction.common as common
+import latte.direction.metrics as common
 from latte.direction.random import OptimizationResult
 
 

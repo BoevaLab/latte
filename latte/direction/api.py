@@ -1,7 +1,7 @@
 import latte.direction.random as random
 import latte.direction.linear_regression as linear_regression
 import latte.direction.optimization as optimization
-from latte.direction.common import (
+from latte.direction.metrics import (
     AxisMetric,
     KendallTauMetric,
     MutualInformationMetric,
