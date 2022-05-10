@@ -40,8 +40,8 @@ fixed_values = {
     DSpritesFactor.SHAPE: 1,
     DSpritesFactor.SCALE: 1,
     DSpritesFactor.ORIENTATION: 0,
-    DSpritesFactor.X: 0.5,
-    DSpritesFactor.Y: 0.5,
+    DSpritesFactor.X: 15 / 31,
+    DSpritesFactor.Y: 15 / 31,
 }
 
 
@@ -210,7 +210,6 @@ def load_dsprites_preprocessed(
     n_components: int = 20,
     factors: Optional[List[DSpritesFactor]] = None,
     ignored_factors: Optional[List[DSpritesFactor]] = None,
-    return_ratios: bool = False,
 ) -> PreprocessedDSpritesDataset:
     """Load the dSprites dataset and preprocess it using PCA or FactorAnalysis.
     Args:
@@ -221,13 +220,13 @@ def load_dsprites_preprocessed(
         factors: Which factors to return.
         ignored_factors: Which factors should be kept constant in the dataset.
             The data is filtered and reduced such that these factors have a constant value.
-        return_ratios: In case of PCA, whether to also return the ratios of variance explained.
 
     Returns:
-        The filtered transformed data (coordinates in PCA or FA component space),
-        the filtered latent factors, optionally PCA variance explained proportions.
-        To be able to select appropriate factors from the returned ones, a dictionary
-        mapping each of the returned factors to the dimension in `y` is also returned.
+        A preprocessedDSpritesDataset holding the filtered transformed data
+        (coordinates in PCA or FA component space), the filtered latent factors,
+        the PCA variance explained proportions in case method="PCA", and a dictionary
+        mapping each of the returned factors to the dimension in `y` to be able to select
+        appropriate factors from the returned ones.
     """
 
     assert method in [
@@ -235,8 +234,6 @@ def load_dsprites_preprocessed(
         "FA",
         "FactorAnalysis",
     ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
-
-    assert not return_ratios or method in ["PCA"], "Ratios can only be returned for PCA."
 
     if factors is None:
         # By default, return all factors
@@ -266,7 +263,7 @@ def load_dsprites_preprocessed(
     X = trans.fit_transform(X)
 
     return PreprocessedDSpritesDataset(
-        X, y, factor2idx, pca_ratios=trans.explained_variance_ratio_ if return_ratios else None
+        X, y, factor2idx, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None
     )
 
 
@@ -274,7 +271,7 @@ def load_dsprites_preprocessed(
 def split(
     X: np.ndarray, y: np.ndarray, p_train: float = 0.7, p_val: float = 0.1
 ) -> Tuple[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]:
-    """Split the data into train, validation, and train sets.
+    """Split the data into train, validation, and test sets.
     Could be made deterministic for this specific dataset later.
     """
     n = len(X)

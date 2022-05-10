@@ -30,26 +30,28 @@ class MINEBiasCorrection(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx: Any, x: torch.Tensor, running_mean: torch.Tensor) -> Any:
-        ctx.save_for_backward(x, running_mean)
-        y = x.exp().mean().log()
+    def forward(ctx: Any, t_marginal: torch.Tensor, running_mean: torch.Tensor) -> Any:
+        ctx.save_for_backward(t_marginal, running_mean)
+        y = -torch.logsumexp(t_marginal, 0) + torch.log(torch.tensor(t_marginal.shape[0]))
         return y
 
     @staticmethod
     def backward(ctx: Any, grad_output: torch.Tensor) -> Tuple[Union[float, Any], None]:
         x, running_mean = ctx.saved_tensors
-        grad = grad_output * x.exp().detach() / (running_mean + EPSILON) / x.shape[0]
-        return grad, None
+        m_grad = grad_output * x.exp().detach() / (running_mean + EPSILON) / x.shape[0]
+        return -m_grad, None
 
 
-def mine_loss(t: torch.Tensor, t_marginal: torch.Tensor, running_mean: torch.Tensor, lr: float) -> torch.Tensor:
+def mine_loss(
+    t: torch.Tensor, t_marginal: torch.Tensor, running_mean: torch.Tensor, alpha: float
+) -> Union[torch.Tensor, torch.Tensor]:
     """The partially bias-corrected loss function which keeps a running mean
     of the denominator of the second term from expression (12) in the paper."""
-    t_marginal_exp = torch.exp(-torch.logsumexp(t_marginal, 0) + torch.log(t_marginal.shape[0])).detach()
-    running_mean = t_marginal_exp if running_mean is None else (1 - lr) * running_mean + lr * torch.mean(t_marginal)
+    t_marginal_exp = torch.exp(-torch.logsumexp(t_marginal, 0) + torch.log(torch.tensor(t_marginal.shape[0]))).detach()
+    running_mean = t_marginal_exp if running_mean == 0 else (1 - alpha) * running_mean + alpha * t_marginal_exp
     t_new = MINEBiasCorrection.apply(t_marginal, running_mean)
 
-    return torch.mean(t) + t_new
+    return torch.mean(t) + t_new, running_mean
 
 
 def f_div_loss(t: torch.Tensor, t_marginal: torch.Tensor) -> torch.Tensor:
@@ -112,7 +114,13 @@ class StatisticsNetwork(nn.Module):
 
 
 class MINE(pl.LightningModule):
-    def __init__(self, T: StatisticsNetwork, kind: MINELossType = MINELossType.MINE, lr: Optional[float] = None):
+    def __init__(
+        self,
+        T: StatisticsNetwork,
+        kind: MINELossType = MINELossType.MINE,
+        learning_rate: float = 1e-3,
+        alpha: Optional[float] = 0.01,
+    ):
         """
         Args:
         T: The statistics network which will be optimised to estimate the mutual information
@@ -121,9 +129,10 @@ class MINE(pl.LightningModule):
         """
         super().__init__()
 
-        self.running_mean: Optional[torch.Tensor] = None
+        self.running_mean = torch.zeros((1,))
         self.T = T
-        self.lr = lr
+        self.learning_rate = learning_rate
+        self.alpha = alpha
 
         self.kind = kind
 
@@ -148,7 +157,7 @@ class MINE(pl.LightningModule):
 
         # Calculate the loss / output of the model
         if self.kind == MINELossType.MINE:
-            mi, self.running_mean = mine_loss(t, t_marginal, self.running_mean, self.lr)
+            mi, self.running_mean = mine_loss(t, t_marginal, self.running_mean, self.alpha)
         elif self.kind == MINELossType.F_DIV:
             mi = f_div_loss(t, t_marginal)
         elif self.kind == MINELossType.MINE_BIASED:
@@ -175,10 +184,4 @@ class MINE(pl.LightningModule):
         return {"val_loss": loss}
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
-
-    # TODO (Anej)
-    # def training_epoch_end(
-    #     self, outputs: Union[List[Dict[str, Tensor]], List[List[Dict[str, Tensor]]]]
-    # ) -> Dict[str, Dict[str, Tensor]]:
-    #     return {"loss": {"epoch": sum([o["loss"] for o in outputs])}}
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
