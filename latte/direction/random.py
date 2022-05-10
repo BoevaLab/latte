@@ -58,7 +58,7 @@ def find_metric_distribution(
     scores: Sequence[float],
     metric: common.AxisMetric,
     budget: int = 200,
-    random_generator: _Generator = 1,
+    seed: _Generator = 1,
 ) -> _MetricsAndVectors:
     """Uniformly samples over all possible directions and returns
     the (sample from the) distribution of scores and directions.
@@ -68,14 +68,14 @@ def find_metric_distribution(
         scores: length n_points
         metric: metric used to score the axes
         budget: how many random directions will be sampled
-        random_generator: used for reproducibility
+        seed: used for reproducibility
 
     Returns:
         scores, shape (budget,)
         vectors, shape (budget, n_dim)
     """
     points, scores = np.asarray(points), np.asarray(scores)
-    vectors = get_random_directions(n_directions=budget, dim=points.shape[-1], random_generator=random_generator)
+    vectors = get_random_directions(n_directions=budget, dim=points.shape[-1], random_generator=seed)
     metric_vals = [metric.score(axis=vector, points=points, scores=scores) for vector in vectors]
 
     return _MetricsAndVectors(metrics=np.asarray(metric_vals), vectors=vectors)
@@ -111,7 +111,5 @@ def find_best_direction(
     budget: int = 200,
     random_generator: Union[int, np.random.Generator] = 1,
 ) -> OptimizationResult:
-    data = find_metric_distribution(
-        points=points, scores=scores, metric=metric, budget=budget, random_generator=random_generator
-    )
+    data = find_metric_distribution(points=points, scores=scores, metric=metric, budget=budget, seed=random_generator)
     return select_best_direction(data)

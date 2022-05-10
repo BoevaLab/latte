@@ -6,7 +6,7 @@ import latte.direction.common as common
 from latte.direction.random import OptimizationResult
 
 
-def optimize(
+def find_best_direction(
     points: np.ndarray,
     scores: np.ndarray,
     metric: common.AxisMetric,

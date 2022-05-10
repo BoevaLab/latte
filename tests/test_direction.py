@@ -49,7 +49,9 @@ def test_find_gradient(true_direction: Sequence[float], metric: di.AxisMetric) -
     scores = score_according_to_gradient(direction=true_direction, points=data)
 
     # Retrieve the vector yielding best scores
-    optimization_result = di.optimization.optimize(points=data, scores=scores, metric=metric, budget=70, seed=10)
+    optimization_result = di.optimization.find_best_direction(
+        points=data, scores=scores, metric=metric, budget=70, seed=10
+    )
 
     true_value = metric.score(axis=true_direction, points=data, scores=scores)
 
@@ -113,7 +115,7 @@ class TestFindMetricDistribution:
             scores=scores,
             metric=metric,
             budget=n_samples,
-            random_generator=42,
+            seed=42,
         )
 
         assert results.metrics.shape == (n_samples,)
