@@ -1,18 +1,15 @@
 import pathlib
 import dataclasses
-from typing import Tuple, List
+from typing import List
 
 import hydra
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA, FactorAnalysis
-from sklearn.preprocessing import StandardScaler
 import seaborn as sns
 
 import latte.hydra_utils as hy
 from latte.direction.api import linear_regression as lr, unit_vector
 from latte.dataset import dsprites
-from latte.dataset.dsprites import DSpritesFactor
 
 
 DEFAULT_TARGET = "figures/dsprites"
@@ -21,62 +18,18 @@ DEFAULT_TARGET = "figures/dsprites"
 @hy.config
 @dataclasses.dataclass
 class DSpritesExplorationConfig:
-    factors: List[int]
-    ignored_factors: List[int]
+    factors: List[dsprites.DSpritesFactor] = dataclasses.field(
+        default_factory=lambda: [
+            dsprites.DSpritesFactor.SCALE,
+            dsprites.DSpritesFactor.X,
+            dsprites.DSpritesFactor.Y,
+        ]
+    )
+    ignored_factors: List[dsprites.DSpritesFactor] = dataclasses.field(
+        default_factory=lambda: [dsprites.DSpritesFactor.SHAPE]
+    )
     n_components: int = 4
     method: str = "PCA"
-
-
-factor_names = {
-    DSpritesFactor.SHAPE: "Shape",
-    DSpritesFactor.SCALE: "Scale",
-    DSpritesFactor.ORIENTATION: "Orientation",
-    DSpritesFactor.X: "Position x",
-    DSpritesFactor.Y: "Position y",
-}
-
-
-fixed_values = {
-    DSpritesFactor.SHAPE: 1,
-    DSpritesFactor.SCALE: 1,
-    DSpritesFactor.ORIENTATION: 0,
-    DSpritesFactor.X: 0.5,
-    DSpritesFactor.Y: 0.5,
-}
-
-
-def prepare_data(data: dsprites.DSpritesDataset, ignored_factors: List[int]) -> Tuple[np.ndarray, np.ndarray]:
-    """Converts the raw dSprites data into Numpy arrays which will be
-    processed by PCA."""
-    X = data.imgs.reshape((len(data.imgs), -1))
-
-    # select the images of interest by ignoring the variation of factors
-    # we are not interested in
-    sample_mask = np.ones(data.latents_values.shape[0], dtype=bool)
-    for factor in ignored_factors:
-        sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
-
-    X = X[sample_mask, :]
-    y = data.latents_values[sample_mask, :]
-
-    # filter out constant pixels
-    X = X[:, X.max(axis=0) == 1]
-
-    return X, y
-
-
-def pca(X: np.ndarray, n_components: int = 4) -> Tuple[np.ndarray, np.ndarray]:
-    t = PCA(n_components=n_components, copy=False)
-    X = StandardScaler().fit_transform(X)
-    X_pca = t.fit_transform(X)
-    return X_pca, t.explained_variance_ratio_
-
-
-def fa(X: np.ndarray, n_components: int = 4) -> Tuple[np.ndarray, np.ndarray]:
-    t = FactorAnalysis(n_components=n_components, copy=False)
-    X = StandardScaler().fit_transform(X)
-    X_pca = t.fit_transform(X)
-    return X_pca
 
 
 def plot_variance_explained(ratios: np.ndarray, filepath: pathlib.Path) -> None:
@@ -129,15 +82,15 @@ def plot_2d(
         v = v / np.linalg.norm(v) * scale
         axes[ii].plot((0, v[0]), (0, v[1]), linewidth=2, color="green")
 
-        axes[ii].set_title(f"{factor_names[DSpritesFactor(factor)]} Gradient")
+        axes[ii].set_title(f"{dsprites.factor_names[dsprites.DSpritesFactor(factor)]} Gradient")
         axes[ii].set(xlabel=f"PC{pc_x + 1}", ylabel=f"PC{pc_y + 1}")
-        axes[ii].legend(title=factor_names[DSpritesFactor(factor)], loc="upper right")
+        axes[ii].legend(title=dsprites.factor_names[dsprites.DSpritesFactor(factor)], loc="upper right")
 
     fig.savefig(filepath / "2d_plots.png")
     plt.close()
 
 
-@hydra.main(config_path="../config", config_name="dsprites_factors")
+@hydra.main(config_path="../latte/config", config_name="dsprites_factors")
 def main(cfg: DSpritesExplorationConfig):
 
     n_components = cfg.n_components
@@ -151,18 +104,16 @@ def main(cfg: DSpritesExplorationConfig):
     filepath = pathlib.Path(DEFAULT_TARGET) / method
     filepath.mkdir(exist_ok=True, parents=True)
 
-    data = dsprites.load_dsprites()
-    X, y = prepare_data(data, ignored_factors=ignored_factors)
+    data = dsprites.load_dsprites_preprocessed(
+        factors=factors, ignored_factors=ignored_factors, n_components=n_components, method=method
+    )
+
+    best_directions = get_optimal_directions(data.X, data.y, factors)
+
+    plot_2d(data.X, data.y, factors, best_directions, filepath)
 
     if method == "PCA":
-        X, ratios = pca(X, n_components)
-        plot_variance_explained(ratios, filepath)
-    else:
-        X = fa(X, n_components)
-
-    best_directions = get_optimal_directions(X, y, factors)
-
-    plot_2d(X, y, factors, best_directions, filepath)
+        plot_variance_explained(data.pca_ratios, filepath)
 
     # TODO (Anej): Add MINE when it is finished
 

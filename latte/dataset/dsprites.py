@@ -1,18 +1,48 @@
 import dataclasses
 import hashlib
 import pathlib
+from enum import IntEnum
+
 import requests
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import Literal, Tuple, Union  # pytype: disable=not-supported-yet
-from enum import Enum
+from typing import Literal, Tuple, Union, List, Dict, Optional  # pytype: disable=not-supported-yet
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA, FactorAnalysis
 
 
 DEFAULT_TARGET = "dataset/raw/dsprites.npz"
 DSPRITES_URL = "https://github.com/deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
 MD5_CHECKSUM = "7da33b31b13a06f4b04a70402ce90c2e"
+
+
+class DSpritesFactor(IntEnum):
+    COLOR = 0
+    SHAPE = 1
+    SCALE = 2
+    ORIENTATION = 3
+    X = 4
+    Y = 5
+
+
+factor_names = {
+    DSpritesFactor.SHAPE: "Shape",
+    DSpritesFactor.SCALE: "Scale",
+    DSpritesFactor.ORIENTATION: "Orientation",
+    DSpritesFactor.X: "Position x",
+    DSpritesFactor.Y: "Position y",
+}
+
+
+fixed_values = {
+    DSpritesFactor.SHAPE: 1,
+    DSpritesFactor.SCALE: 1,
+    DSpritesFactor.ORIENTATION: 0,
+    DSpritesFactor.X: 15 / 31,
+    DSpritesFactor.Y: 15 / 31,
+}
 
 
 def _check_file_ready(file: pathlib.Path, md5_checksum: str, open_mode: Literal["r", "rb"]) -> bool:
@@ -73,13 +103,12 @@ class DSpritesDataset:
     latents_classes: np.ndarray
 
 
-class DSpritesFactor(Enum):
-    COLOR = 0
-    SHAPE = 1
-    SCALE = 2
-    ORIENTATION = 3
-    X = 4
-    Y = 5
+@dataclasses.dataclass
+class PreprocessedDSpritesDataset:
+    X: np.ndarray
+    y: np.ndarray
+    factor2idx: Dict[DSpritesFactor, int]
+    pca_ratios: Optional[np.ndarray]
 
 
 def _parse_metadata(data) -> DSpritesMetadata:
@@ -133,6 +162,132 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
         latents_classes=data["latents_classes"],
         imgs=data["imgs"],
     )
+
+
+def prepare_data(
+    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: List[DSpritesFactor]
+) -> Tuple[np.ndarray, np.ndarray, Dict[DSpritesFactor, int]]:
+    """Converts the raw dSprites data into Numpy arrays which will be
+    processed by PCA.
+    Args:
+        data: DSpritesDataset object
+        factors: Which factors to keep the information about in the returned data
+        ignored_factors: Which factors should be held fixed (all the variation in them will be removed)
+
+    Returns:
+        Flattened filtered images and factors
+
+    """
+    # Flatten images
+    X = data.imgs.reshape((len(data.imgs), -1))
+
+    # Select the images of interest by ignoring the variation of factors
+    # we are not interested in
+    sample_mask = np.ones(data.latents_values.shape[0], dtype=bool)
+    for factor in ignored_factors:
+        sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
+
+    X = X[sample_mask, :]
+    y = data.latents_values[sample_mask, :]
+
+    # Filter out constant pixels
+    X = X[:, X.max(axis=0) == 1]
+
+    # Keep only the factors that we want
+    y = y[:, factors]
+
+    # The dictionary which maps each of the factors of interest
+    # into the dimension of the returned factors y
+    factor2idx = {factor: ii for ii, factor in enumerate(factors)}
+
+    return X, y, factor2idx
+
+
+def load_dsprites_preprocessed(
+    filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
+    download_ok: bool = True,
+    method: str = "PCA",
+    n_components: int = 20,
+    factors: Optional[List[DSpritesFactor]] = None,
+    ignored_factors: Optional[List[DSpritesFactor]] = None,
+) -> PreprocessedDSpritesDataset:
+    """Load the dSprites dataset and preprocess it using PCA or FactorAnalysis.
+    Args:
+        filepath: The location of the dsprites data.
+        download_ok: If the data can be downloaded.
+        method: The way to preprocess the data, {PCA, FA]
+        n_components: Number of component to produce in the representation.
+        factors: Which factors to return.
+        ignored_factors: Which factors should be kept constant in the dataset.
+            The data is filtered and reduced such that these factors have a constant value.
+
+    Returns:
+        A preprocessedDSpritesDataset holding the filtered transformed data
+        (coordinates in PCA or FA component space), the filtered latent factors,
+        the PCA variance explained proportions in case method="PCA", and a dictionary
+        mapping each of the returned factors to the dimension in `y` to be able to select
+        appropriate factors from the returned ones.
+    """
+
+    assert method in [
+        "PCA",
+        "FA",
+        "FactorAnalysis",
+    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
+
+    if factors is None:
+        # By default, return all factors
+        factors = [
+            DSpritesFactor.SHAPE,
+            DSpritesFactor.SCALE,
+            DSpritesFactor.ORIENTATION,
+            DSpritesFactor.X,
+            DSpritesFactor.Y,
+        ]
+
+    # Load raw data
+    data = load_dsprites(filepath, download_ok)
+
+    # Flatten and filter the data
+    X, y, factor2idx = prepare_data(
+        data, factors=factors, ignored_factors=ignored_factors if ignored_factors is not None else []
+    )
+
+    # Reduce the dimensionality
+    if method == "PCA":
+        trans = PCA(n_components=n_components)
+    else:
+        trans = FactorAnalysis(n_components=n_components)
+
+    X = StandardScaler().fit_transform(X)
+    X = trans.fit_transform(X)
+
+    return PreprocessedDSpritesDataset(
+        X, y, factor2idx, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None
+    )
+
+
+# TODO (Anej)
+def split(
+    X: np.ndarray, y: np.ndarray, p_train: float = 0.7, p_val: float = 0.1
+) -> Tuple[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]:
+    """Split the data into train, validation, and test sets.
+    Could be made deterministic for this specific dataset later.
+    """
+    n = len(X)
+    permutation = np.random.permutation(n)
+    end_train, end_val = int(p_train * n), int((p_train + p_val) * n)
+    X_train, X_val, X_test = (
+        X[permutation, :][:end_train],
+        X[permutation, :][end_train:end_val],
+        X[permutation, :][end_val:],
+    )
+    y_train, y_val, y_test = (
+        y[permutation, :][:end_train],
+        y[permutation, :][end_train:end_val],
+        y[permutation, :][end_val:],
+    )
+    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 
 if __name__ == "__main__":

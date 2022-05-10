@@ -11,7 +11,7 @@ import seaborn as sns
 
 import latte.hydra_utils as hy
 from latte.direction.api import (
-    linear_regression as lr,
+    linear_regression as lin_reg,
     random as rnd,
     unit_vector,
     SpearmanCorrelationMetric,
@@ -31,7 +31,7 @@ def create_data(n: int, d: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def optimal_directions(
     points: np.ndarray, scores: np.ndarray, budget: int, random_generator: int
-) -> Dict[str, Union[rnd.OptimizationResult, rnd.OptimizationResult]]:
+) -> Dict[str, Union[rnd.OptimizationResult, lin_reg.OptimizationResult]]:
     """Computes the optimal directions found by various implemented procedures."""
     results = {}
     results["spearman"] = rnd.find_best_direction(
@@ -43,7 +43,7 @@ def optimal_directions(
     results["mi"] = rnd.find_best_direction(
         points, scores, MutualInformationMetric(), budget=budget, random_generator=random_generator + 3
     )
-    results["lr"] = lr.find_best_direction(points, scores)
+    results["lr"] = lin_reg.find_best_direction(points, scores)
     return results
 
 
@@ -70,7 +70,7 @@ def score_distributions(points: np.ndarray, scores: np.ndarray, m: int, random_g
 def plot_2d(
     points: np.ndarray,
     direction: np.ndarray,
-    results: Dict[str, Union[rnd.OptimizationResult, lr.OptimizationResult]],
+    results: Dict[str, Union[rnd.OptimizationResult, lin_reg.OptimizationResult]],
     filepath: pathlib.Path,
 ) -> None:
     fig, ax = plt.subplots()
@@ -95,7 +95,7 @@ def plot_2d(
 def plot_3d(
     points: np.ndarray,
     direction: np.ndarray,
-    results: Dict[str, Union[rnd.OptimizationResult, lr.OptimizationResult]],
+    results: Dict[str, Union[rnd.OptimizationResult, lin_reg.OptimizationResult]],
     filepath: pathlib.Path,
 ) -> None:
     fig = plt.figure()
