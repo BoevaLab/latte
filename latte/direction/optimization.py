@@ -2,14 +2,14 @@
 import nevergrad as ng
 import numpy as np
 
-import latte.direction.metrics as common
+import latte.direction.metrics as metrics
 from latte.direction.random import OptimizationResult
 
 
 def find_best_direction(
     points: np.ndarray,
     scores: np.ndarray,
-    metric: common.AxisMetric,
+    metric: metrics.AxisMetric,
     budget: int = 200,
     seed: int = 321,
 ) -> OptimizationResult:
@@ -41,11 +41,11 @@ def find_best_direction(
     def objective(vector: np.ndarray) -> float:
         """As nevergrad minimizes the objective and we want to maximize,
         we need an additional minus sign."""
-        direction = common.unit_vector(vector)
+        direction = metrics.unit_vector(vector)
         return -metric.score(axis=direction, points=points, scores=scores)
 
     # The optimal vector
-    axis = common.unit_vector(optimizer.minimize(objective).value)
+    axis = metrics.unit_vector(optimizer.minimize(objective).value)
 
     # Metric value at the optimal point
     value = metric.score(axis=axis, points=points, scores=scores)
