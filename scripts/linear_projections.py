@@ -2,7 +2,6 @@ import pathlib
 import dataclasses
 from typing import Dict, Union, Tuple
 
-import hydra
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -23,8 +22,8 @@ DEFAULT_TARGET = "figures/linear"
 
 
 def create_data(n: int, d: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    points = np.rnd.normal(size=(n, d))
-    direction = unit_vector(np.rnd.normal(size=(d,)))
+    points = np.random.normal(size=(n, d))
+    direction = unit_vector(np.random.normal(size=(d,)))
     scores = np.einsum("ij,j->i", points, direction)
     return points, scores, direction
 
@@ -130,36 +129,15 @@ def plot_metric_distribution(distribution: np.ndarray, metric_name: str, d: int,
 
 @hy.config
 @dataclasses.dataclass
-class RandomDatasetConfig:
-    n: int = 100
-    d: int = 2
-
-
-@hy.config
-@dataclasses.dataclass
-class RandomSearchConfig:
-    budget: int = 200
-    seed: int = 1
-
-
-# @hy.config
-# @dataclasses.dataclass
-# class RandomLinesConfig:
-#     dataset: RandomDatasetConfig
-#     random: RandomSearchConfig
-
-
-@hy.config
-@dataclasses.dataclass
 class RandomLinesConfig:
-    d: int
+    d: int = 2
     n: int = 100
     budget: int = 200
     m: int = 1000
     seed: int = 1
 
 
-@hydra.main(config_path="config", config_name="random_lines")
+@hy.main
 def main(cfg: RandomLinesConfig):
 
     # create the directory for storing the figures

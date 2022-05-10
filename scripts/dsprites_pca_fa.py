@@ -1,8 +1,7 @@
 import pathlib
 import dataclasses
-from typing import List
+from typing import List, Dict
 
-import hydra
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -26,7 +25,7 @@ class DSpritesExplorationConfig:
         ]
     )
     ignored_factors: List[dsprites.DSpritesFactor] = dataclasses.field(
-        default_factory=lambda: [dsprites.DSpritesFactor.SHAPE]
+        default_factory=lambda: [dsprites.DSpritesFactor.SHAPE, dsprites.DSpritesFactor.ORIENTATION]
     )
     n_components: int = 4
     method: str = "PCA"
@@ -49,10 +48,12 @@ def plot_variance_explained(ratios: np.ndarray, filepath: pathlib.Path) -> None:
     plt.close()
 
 
-def get_optimal_directions(X: np.ndarray, y: np.ndarray, factors: List[int]) -> List[lr.OptimizationResult]:
+def get_optimal_directions(
+    X: np.ndarray, y: np.ndarray, factors: List[dsprites.DSpritesFactor], factor2idx: Dict[dsprites.DSpritesFactor, int]
+) -> List[lr.OptimizationResult]:
     results = []
-    for j in factors:
-        result = lr.find_best_direction(X, y[:, j])
+    for factor in factors:
+        result = lr.find_best_direction(X, y[:, factor2idx[factor]])
         result.direction = unit_vector(result.direction)
         results.append(result)
     return results
@@ -61,7 +62,8 @@ def get_optimal_directions(X: np.ndarray, y: np.ndarray, factors: List[int]) -> 
 def plot_2d(
     X: np.ndarray,
     y: np.ndarray,
-    factors: List[int],
+    factors: List[dsprites.DSpritesFactor],
+    factor2idx: Dict[dsprites.DSpritesFactor, int],
     optimal_directions: List[lr.OptimizationResult],
     filepath: pathlib.Path,
 ) -> None:
@@ -73,7 +75,7 @@ def plot_2d(
         # get the two most informative components for that specific factor
         pc_x, pc_y = np.argsort(-np.abs(direction.direction))[:2]
 
-        sns.scatterplot(x=X[:, pc_x], y=X[:, pc_y], hue=y[:, factor], ax=axes[ii])
+        sns.scatterplot(x=X[:, pc_x], y=X[:, pc_y], hue=y[:, factor2idx[factor]], ax=axes[ii])
 
         # plot the direction as well
         # scale the direction so that it can be seen in the figure well
@@ -82,15 +84,15 @@ def plot_2d(
         v = v / np.linalg.norm(v) * scale
         axes[ii].plot((0, v[0]), (0, v[1]), linewidth=2, color="green")
 
-        axes[ii].set_title(f"{dsprites.factor_names[dsprites.DSpritesFactor(factor)]} Gradient")
+        axes[ii].set_title(f"{dsprites.factor_names[factor]} Gradient")
         axes[ii].set(xlabel=f"PC{pc_x + 1}", ylabel=f"PC{pc_y + 1}")
-        axes[ii].legend(title=dsprites.factor_names[dsprites.DSpritesFactor(factor)], loc="upper right")
+        axes[ii].legend(title=dsprites.factor_names[factor], loc="upper right")
 
     fig.savefig(filepath / "2d_plots.png")
     plt.close()
 
 
-@hydra.main(config_path="../latte/config", config_name="dsprites_factors")
+@hy.main
 def main(cfg: DSpritesExplorationConfig):
 
     n_components = cfg.n_components
@@ -108,9 +110,9 @@ def main(cfg: DSpritesExplorationConfig):
         factors=factors, ignored_factors=ignored_factors, n_components=n_components, method=method
     )
 
-    best_directions = get_optimal_directions(data.X, data.y, factors)
+    best_directions = get_optimal_directions(data.X, data.y, factors, data.factor2idx)
 
-    plot_2d(data.X, data.y, factors, best_directions, filepath)
+    plot_2d(data.X, data.y, factors, data.factor2idx, best_directions, filepath)
 
     if method == "PCA":
         plot_variance_explained(data.pca_ratios, filepath)
