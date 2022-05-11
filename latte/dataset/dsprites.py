@@ -118,6 +118,12 @@ class PreprocessedDSpritesDataset:
     pca_ratios: Optional[np.ndarray]
 
 
+@dataclasses.dataclass
+class DecompositionResult:
+    X: np.ndarray
+    pca_ratios: Optional[np.ndarray]
+
+
 def _parse_metadata(data) -> DSpritesMetadata:
     """Extracts metadata from the raw dSprites dataset.
 
@@ -213,6 +219,35 @@ def prepare_data(
     return X, y, factor2idx
 
 
+def decompose(X: np.ndarray, method: str, n_components: int) -> DecompositionResult:
+    """Decomposes the flattened images either PCA or FactorAnalysis.
+
+    Args:
+        X: the array of flattened images
+        method: The way to preprocess the data, {PCA, FA}
+        n_components: Number of component to produce in the representation.
+
+    Returns:
+        A DecompositionResult object with the representations of the images
+        in the decomposed space and, in the case of PCA, the explained variance ratios
+    """
+    assert method in [
+        "PCA",
+        "FA",
+        "FactorAnalysis",
+    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
+
+    if method == "PCA":
+        trans = PCA(n_components=n_components)
+    else:
+        trans = FactorAnalysis(n_components=n_components)
+
+    X = StandardScaler().fit_transform(X)
+    X = trans.fit_transform(X)
+
+    return DecompositionResult(X=X, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None)
+
+
 def load_dsprites_preprocessed(
     filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
     download_ok: bool = True,
@@ -225,7 +260,7 @@ def load_dsprites_preprocessed(
     Args:
         filepath: The location of the dsprites data.
         download_ok: If the data can be downloaded.
-        method: The way to preprocess the data, {PCA, FA]
+        method: The way to preprocess the data, {PCA, FA}
         n_components: Number of component to produce in the representation.
         factors: Which factors to return.
         ignored_factors: Which factors should be kept constant in the dataset.
@@ -239,12 +274,6 @@ def load_dsprites_preprocessed(
         appropriate factors from the returned ones.
     """
 
-    assert method in [
-        "PCA",
-        "FA",
-        "FactorAnalysis",
-    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
-
     if factors is None:
         # By default, return all factors
         factors = list(factor_names.keys())
@@ -256,16 +285,10 @@ def load_dsprites_preprocessed(
     X, y, factor2idx = prepare_data(data, factors=factors, ignored_factors=ignored_factors)
 
     # Reduce the dimensionality
-    if method == "PCA":
-        trans = PCA(n_components=n_components)
-    else:
-        trans = FactorAnalysis(n_components=n_components)
-
-    X = StandardScaler().fit_transform(X)
-    X = trans.fit_transform(X)
+    decomposition_result = decompose(X, method, n_components=n_components)
 
     return PreprocessedDSpritesDataset(
-        X, y, factor2idx, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None
+        decomposition_result.X, y, factor2idx, pca_ratios=decomposition_result.pca_ratios
     )
 
 
