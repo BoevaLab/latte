@@ -18,6 +18,8 @@ DSPRITES_URL = "https://github.com/deepmind/dsprites-dataset/raw/master/dsprites
 MD5_CHECKSUM = "7da33b31b13a06f4b04a70402ce90c2e"
 
 
+# Factors of variation in the dSprites dataset and their dimensions
+# in the latents data structure
 class DSpritesFactor(IntEnum):
     COLOR = 0
     SHAPE = 1
@@ -27,6 +29,7 @@ class DSpritesFactor(IntEnum):
     Y = 5
 
 
+# Maps the dSprites factors of variation to their descriptive names
 factor_names = {
     DSpritesFactor.SHAPE: "Shape",
     DSpritesFactor.SCALE: "Scale",
@@ -36,6 +39,10 @@ factor_names = {
 }
 
 
+# Maps the dSprites factors of variation to a value in their range
+# so that we can effectively remove the factor of variation by filtering
+# the images which do not have this specified value.
+# This removes the variation in that factor (keeps it constant) and downsizes the dataset.
 fixed_values = {
     DSpritesFactor.SHAPE: 1,
     DSpritesFactor.SCALE: 1,
@@ -165,7 +172,7 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
 
 
 def prepare_data(
-    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: List[DSpritesFactor]
+    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: Optional[List[DSpritesFactor]]
 ) -> Tuple[np.ndarray, np.ndarray, Dict[DSpritesFactor, int]]:
     """Converts the raw dSprites data into Numpy arrays which will be
     processed by PCA.
@@ -175,8 +182,10 @@ def prepare_data(
         ignored_factors: Which factors should be held fixed (all the variation in them will be removed)
 
     Returns:
-        Flattened filtered images and factors
-
+        X: flattened images with constant-valued pixels removed
+        y: the values of the selected factors of variation for each image
+        factor2idx: a dictionary mapping each dSprites factor (DSpritesFactor)
+                    to the dimension of y in which it is captured
     """
     # Flatten images
     X = data.imgs.reshape((len(data.imgs), -1))
@@ -184,8 +193,9 @@ def prepare_data(
     # Select the images of interest by ignoring the variation of factors
     # we are not interested in
     sample_mask = np.ones(data.latents_values.shape[0], dtype=bool)
-    for factor in ignored_factors:
-        sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
+    if ignored_factors is not None:
+        for factor in ignored_factors:
+            sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
 
     X = X[sample_mask, :]
     y = data.latents_values[sample_mask, :]
@@ -237,21 +247,13 @@ def load_dsprites_preprocessed(
 
     if factors is None:
         # By default, return all factors
-        factors = [
-            DSpritesFactor.SHAPE,
-            DSpritesFactor.SCALE,
-            DSpritesFactor.ORIENTATION,
-            DSpritesFactor.X,
-            DSpritesFactor.Y,
-        ]
+        factors = list(factor_names.keys())
 
     # Load raw data
     data = load_dsprites(filepath, download_ok)
 
     # Flatten and filter the data
-    X, y, factor2idx = prepare_data(
-        data, factors=factors, ignored_factors=ignored_factors if ignored_factors is not None else []
-    )
+    X, y, factor2idx = prepare_data(data, factors=factors, ignored_factors=ignored_factors)
 
     # Reduce the dimensionality
     if method == "PCA":
@@ -269,13 +271,14 @@ def load_dsprites_preprocessed(
 
 # TODO (Anej)
 def split(
-    X: np.ndarray, y: np.ndarray, p_train: float = 0.7, p_val: float = 0.1
+    X: np.ndarray, y: np.ndarray, p_train: float = 0.7, p_val: float = 0.1, seed: Union[np.random.Generator, int] = 1
 ) -> Tuple[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]:
     """Split the data into train, validation, and test sets.
     Could be made deterministic for this specific dataset later.
     """
     n = len(X)
-    permutation = np.random.permutation(n)
+    rng = np.random.default_rng(seed)
+    permutation = rng.permutation(n)
     end_train, end_val = int(p_train * n), int((p_train + p_val) * n)
     X_train, X_val, X_test = (
         X[permutation, :][:end_train],
