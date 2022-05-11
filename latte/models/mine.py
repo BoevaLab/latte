@@ -4,6 +4,8 @@ between two arbitrary random variables.
 Based on:
 Belghazi, M. I., Baratin, A., Rajeswar, S., Ozair, S., Bengio, Y., Courville, A., & Hjelm, R. D. (2018).
 Mutual information neural estimation. 35th International Conference on Machine Learning, ICML 2018, 2, 864–873.
+
+The code is inspired by and based on https://github.com/gtegner/mine-pytorch.
 """
 from enum import Enum
 from typing import Any, Union, Dict, Tuple, Optional
