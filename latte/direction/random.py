@@ -1,10 +1,15 @@
+"""Random sampling of different directions.
+
+One can use this as a very simple (random) optimizer.
+For more sophisticated approaches, see `latte.direction.optimization`.
+"""
 import dataclasses
 from typing import NamedTuple, Sequence, Union
 
 import numpy as np
 import numpy.typing as ntypes
 
-import latte.direction.common as common
+import latte.direction.metrics as metrics
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -51,9 +56,9 @@ class _MetricsAndVectors(NamedTuple):
 def find_metric_distribution(
     points: ntypes.ArrayLike,
     scores: Sequence[float],
-    metric: common.AxisMetric,
+    metric: metrics.AxisMetric,
     budget: int = 200,
-    random_generator: _Generator = 1,
+    seed: _Generator = 1,
 ) -> _MetricsAndVectors:
     """Uniformly samples over all possible directions and returns
     the (sample from the) distribution of scores and directions.
@@ -63,14 +68,14 @@ def find_metric_distribution(
         scores: length n_points
         metric: metric used to score the axes
         budget: how many random directions will be sampled
-        random_generator: used for reproducibility
+        seed: used for reproducibility
 
     Returns:
         scores, shape (budget,)
         vectors, shape (budget, n_dim)
     """
     points, scores = np.asarray(points), np.asarray(scores)
-    vectors = get_random_directions(n_directions=budget, dim=points.shape[-1], random_generator=random_generator)
+    vectors = get_random_directions(n_directions=budget, dim=points.shape[-1], random_generator=seed)
     metric_vals = [metric.score(axis=vector, points=points, scores=scores) for vector in vectors]
 
     return _MetricsAndVectors(metrics=np.asarray(metric_vals), vectors=vectors)
@@ -95,18 +100,16 @@ def select_best_direction(data: _MetricsAndVectors) -> OptimizationResult:
     i = np.argmax(data.metrics)
     return OptimizationResult(
         value=data.metrics[i],
-        direction=common.unit_vector(data.vectors[i]),
+        direction=metrics.unit_vector(data.vectors[i]),
     )
 
 
 def find_best_direction(
     points: np.ndarray,
     scores: Sequence[float],
-    metric: common.AxisMetric,
+    metric: metrics.AxisMetric,
     budget: int = 200,
-    random_generator: Union[int, np.random.Generator] = 1,
+    seed: Union[int, np.random.Generator] = 1,
 ) -> OptimizationResult:
-    data = find_metric_distribution(
-        points=points, scores=scores, metric=metric, budget=budget, random_generator=random_generator
-    )
+    data = find_metric_distribution(points=points, scores=scores, metric=metric, budget=budget, seed=seed)
     return select_best_direction(data)
