@@ -4,8 +4,8 @@
 import dataclasses
 import os
 import pathlib
-import shutil
 import zipfile
+import tempfile
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
 from typing import Union, Optional, Literal  # pytype: disable=not-supported-yet
@@ -18,6 +18,15 @@ import latte.dataset.utils as dsutils
 
 
 DEFAULT_TARGET = "dataset/raw/"
+
+TRAIN_IMAGES = "train-images-idx3-ubyte.gz"
+TRAIN_LABELS = "train-labels-idx1-ubyte.gz"
+TRAIN_LATENTS = "train-morpho.csv"
+TEST_IMAGES = "t10k-images-idx3-ubyte.gz"
+TEST_LABELS = "t10k-labels-idx1-ubyte.gz"
+TEST_LATENTS = "t10k-morpho.csv"
+TRAIN_PERTURBATIONS = "train-pert-idx1-ubyte.gz"
+TEST_PERTURBATIONS = "t10k-pert-idx1-ubyte.gz"
 
 MORPHOMNIST_URL = {
     "plain": "https://drive.google.com/uc?export=download&id=1-E3sbKtzN8NGNefUdky2NVniW1fAa5ZG",
@@ -33,6 +42,22 @@ MD5_CHECKSUM = {
 
 @dataclasses.dataclass
 class MorphoMNISTDataset:
+    """Stores the MorphoMNIST data from https://github.com/dccastro/Morpho-MNIST.
+    The dataset contains 28x28 black and white images from the MNIST dataset together with their true
+    latent factors: the area, length, thickness, slant, width, height.
+    The images can also be perturbed (in a global or local way); the labels of the perturbations are:
+    0: plain; 1: thinned; 2: thickened; 3: swollen; 4: fractured
+    Members:
+        train_imgs: ndarray of shape (60000, 28, 28)
+        train_labels: ndarray of shape (60000, )
+        train_latents: ndarray of shape (60000, 7) with the first column storing the index
+        train_perturbations: optional ndarray of shape (60000, )
+        test_imgs: ndarray of shape (10000, 28, 28)
+        test_labels: ndarray of shape (10000, )
+        test_latents: ndarray of shape (10000, 7) with the first column storing the index
+        test_perturbations: optional ndarray of shape (10000, )
+    """
+
     train_imgs: np.ndarray
     train_latents_values: np.ndarray
     train_labels: np.ndarray
@@ -88,35 +113,35 @@ def prepare_files(
 
     Returns:
         MorphoMNISTDataset object
+            In case that the version is not "plain", it also includes the information about the perturbations performed,
+            which is not there for the plain (non-perturbed) data.
     """
-    archive_filepath = filepath / f"{version}_archive.zip"
-    extract_filepath = filepath
 
-    dsutils.download(target=archive_filepath, _source=_source, _checksum=_md5_checksum)
+    archive_file = tempfile.NamedTemporaryFile()
+    extract_dir = tempfile.TemporaryDirectory()
 
-    extract_filepath.parent.mkdir(parents=True, exist_ok=True)
+    dsutils.download(target=archive_file.name, _source=_source, _checksum=_md5_checksum)
 
-    with zipfile.ZipFile(archive_filepath, "r") as zf:
-        zf.extractall(extract_filepath)
+    with zipfile.ZipFile(archive_file, "r") as zf:
+        zf.extractall(extract_dir.name)
 
-    os.remove(archive_filepath)
+    def right_path(_version: str, filename: str) -> str:
+        return os.path.join(extract_dir.name, _version, filename)
 
-    train_images = dsutils.load_idx(str(extract_filepath / os.path.join(version, "train-images-idx3-ubyte.gz")))
-    train_labels = dsutils.load_idx(str(extract_filepath / os.path.join(version, "train-labels-idx1-ubyte.gz")))
-    train_latents = pd.read_csv(str(extract_filepath / os.path.join(version, "train-morpho.csv")))
+    train_images = dsutils.load_idx(right_path(version, TRAIN_IMAGES))
+    train_labels = dsutils.load_idx(right_path(version, TRAIN_LABELS))
+    train_latents = pd.read_csv(right_path(version, TRAIN_LATENTS))
 
-    test_images = dsutils.load_idx(str(extract_filepath / os.path.join(version, "t10k-images-idx3-ubyte.gz")))
-    test_labels = dsutils.load_idx(str(extract_filepath / os.path.join(version, "t10k-labels-idx1-ubyte.gz")))
-    test_latents = pd.read_csv(str(extract_filepath / os.path.join(version, "t10k-morpho.csv")))
+    test_images = dsutils.load_idx(right_path(version, TEST_IMAGES))
+    test_labels = dsutils.load_idx(right_path(version, TEST_LABELS))
+    test_latents = pd.read_csv(right_path(version, TEST_LATENTS))
 
     train_perturbations, test_perturbations = None, None
+    # if the data is perturbed (it is not "plain"), we also collect the perturbation information,
+    # which does not exist for the plain data
     if version in ["local", "global"]:
-        train_perturbations = dsutils.load_idx(
-            str(extract_filepath / os.path.join(version, "train-pert-idx1-ubyte.gz"))
-        )
-        test_perturbations = dsutils.load_idx(str(extract_filepath / os.path.join(version, "t10k-pert-idx1-ubyte.gz")))
-
-    shutil.rmtree(extract_filepath / version)
+        train_perturbations = dsutils.load_idx(right_path(version, TRAIN_PERTURBATIONS))
+        test_perturbations = dsutils.load_idx(right_path(version, TEST_PERTURBATIONS))
 
     save_to_file(version, "train", filepath, train_images, train_labels, train_latents, train_perturbations)
     save_to_file(version, "test", filepath, test_images, test_labels, test_latents, test_perturbations)
@@ -172,6 +197,6 @@ def load_morphomnist(
 
 
 if __name__ == "__main__":
-    for version in ["plain", "local", "global"]:
-        load_morphomnist(version=version)
+    for dataset_version in ["plain", "local", "global"]:
+        load_morphomnist(version=dataset_version)
     print("DONE")
