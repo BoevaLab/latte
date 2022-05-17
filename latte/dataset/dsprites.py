@@ -1,6 +1,7 @@
 import dataclasses
 import pathlib
-from typing import Tuple, Union
+from enum import IntEnum
+from typing import Tuple, Union, List, Dict, Optional
 
 import numpy as np
 from sklearn.preprocessing import StandardScaler
