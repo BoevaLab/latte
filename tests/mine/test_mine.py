@@ -189,7 +189,7 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 def test_value_changes() -> None:
 
     x = rng.uniform(-5, 5, size=(1000, 1))
@@ -218,7 +218,9 @@ def test_value_changes() -> None:
     # We assert that the values for each layer were changed at each epoch
     for ii, entry in cb.epoch_weights.items():
         for jj in range(1, len(entry)):
-            assert torch.linalg.norm(entry[jj] - entry[jj - 1]) > 0
+            assert (
+                np.linalg.norm(entry[jj] - entry[jj - 1]) > 0
+            )  # since the layer weight are stored as numpy arrays, use numpy linalg
 
 
 # DONE

@@ -21,7 +21,7 @@ class GenericMINEDataModule(pl.LightningDataModule):
         p_train: float = 0.7,
         p_val: float = 0.1,
         batch_size: int = 32,
-        test_batch_size=512,
+        test_batch_size: int = 512,
         num_workers: int = 1,
     ):
         """

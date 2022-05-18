@@ -26,4 +26,4 @@ class WeightsTracker(pl.Callback):
     def on_validation_epoch_end(self, trainer: pl.Trainer, module: mine.MINE) -> None:
         for ii, layer in enumerate(module.T.S):
             if hasattr(layer, "weight"):
-                self.epoch_weights[ii].append(copy.deepcopy(layer.weight))
+                self.epoch_weights[ii].append(layer.weight.cpu().detach().numpy().copy())
