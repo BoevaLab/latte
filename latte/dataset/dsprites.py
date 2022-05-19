@@ -1,23 +1,21 @@
 import dataclasses
-import hashlib
 import pathlib
 from enum import IntEnum
-
-import requests
-
-# TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import Literal, Tuple, Union, List, Dict, Optional  # pytype: disable=not-supported-yet
+from typing import Tuple, Union, List, Dict, Optional
 
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA, FactorAnalysis
+
+import latte.dataset.utils as dsutils
 
 
 DEFAULT_TARGET = "dataset/raw/dsprites.npz"
 DSPRITES_URL = "https://github.com/deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
 MD5_CHECKSUM = "7da33b31b13a06f4b04a70402ce90c2e"
 
-
+# Factors of variation in the dSprites dataset and their dimensions
+# in the latents data structure
 class DSpritesFactor(IntEnum):
     COLOR = 0
     SHAPE = 1
@@ -27,6 +25,7 @@ class DSpritesFactor(IntEnum):
     Y = 5
 
 
+# Maps the dSprites factors of variation to their descriptive names
 factor_names = {
     DSpritesFactor.SHAPE: "Shape",
     DSpritesFactor.SCALE: "Scale",
@@ -36,6 +35,10 @@ factor_names = {
 }
 
 
+# Maps the dSprites factors of variation to a value in their range
+# so that we can effectively remove the factor of variation by filtering
+# the images which do not have this specified value.
+# This removes the variation in that factor (keeps it constant) and downsizes the dataset.
 fixed_values = {
     DSpritesFactor.SHAPE: 1,
     DSpritesFactor.SCALE: 1,
@@ -43,48 +46,6 @@ fixed_values = {
     DSpritesFactor.X: 15 / 31,
     DSpritesFactor.Y: 15 / 31,
 }
-
-
-def _check_file_ready(file: pathlib.Path, md5_checksum: str, open_mode: Literal["r", "rb"]) -> bool:
-    """Checks if the file is ready to use (exists and has the right MD5 checksum)
-
-    Args:
-        file: path to the file one wants to check
-        md5_checksum: expected MD5 checksum
-        open_mode: how the file should be opened
-
-    Returns:
-        true, if the file exists and has the right checksum
-    """
-    if not file.exists():
-        return False
-
-    with open(file, open_mode) as f:
-        checksum = hashlib.md5(f.read()).hexdigest()
-
-    return checksum == md5_checksum
-
-
-def download(target: Union[str, pathlib.Path], _source: str = DSPRITES_URL, _checksum: str = MD5_CHECKSUM) -> None:
-    target = pathlib.Path(target)
-
-    # If the file already exists, we do nothing
-    if _check_file_ready(file=target, md5_checksum=_checksum, open_mode="rb"):
-        return
-
-    # Otherwise, download the file
-    req = requests.get(DSPRITES_URL)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "wb") as f:
-        f.write(req.content)
-
-    # Check if the file is ready now. Otherwise, raise an exception
-    if not _check_file_ready(target, md5_checksum=_checksum, open_mode="rb"):
-        raise ValueError(
-            "The downloaded file is corrupted. Download it again. "
-            "If it doesn't help, check whether the MD5 checksum are right. "
-            "Note that opening a corrupted file may be a threat to your computer, due to pickle."
-        )
 
 
 @dataclasses.dataclass
@@ -108,6 +69,12 @@ class PreprocessedDSpritesDataset:
     X: np.ndarray
     y: np.ndarray
     factor2idx: Dict[DSpritesFactor, int]
+    pca_ratios: Optional[np.ndarray]
+
+
+@dataclasses.dataclass
+class DecompositionResult:
+    X: np.ndarray
     pca_ratios: Optional[np.ndarray]
 
 
@@ -148,7 +115,7 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
     # If the file doesn't exist and we have permission to download,
     # we will download it
     if (not filepath.exists()) and download_ok:
-        download(target=filepath, _source=DSPRITES_URL, _checksum=MD5_CHECKSUM)
+        dsutils.download(target=filepath, _source=DSPRITES_URL, _checksum=MD5_CHECKSUM)
 
     # Load the dataset to the memory
     data = np.load(filepath, allow_pickle=True, encoding="bytes")
@@ -165,7 +132,7 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
 
 
 def prepare_data(
-    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: List[DSpritesFactor]
+    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: Optional[List[DSpritesFactor]]
 ) -> Tuple[np.ndarray, np.ndarray, Dict[DSpritesFactor, int]]:
     """Converts the raw dSprites data into Numpy arrays which will be
     processed by PCA.
@@ -175,8 +142,10 @@ def prepare_data(
         ignored_factors: Which factors should be held fixed (all the variation in them will be removed)
 
     Returns:
-        Flattened filtered images and factors
-
+        X: flattened images with constant-valued pixels removed
+        y: the values of the selected factors of variation for each image
+        factor2idx: a dictionary mapping each dSprites factor (DSpritesFactor)
+                    to the dimension of y in which it is captured
     """
     # Flatten images
     X = data.imgs.reshape((len(data.imgs), -1))
@@ -184,8 +153,9 @@ def prepare_data(
     # Select the images of interest by ignoring the variation of factors
     # we are not interested in
     sample_mask = np.ones(data.latents_values.shape[0], dtype=bool)
-    for factor in ignored_factors:
-        sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
+    if ignored_factors is not None:
+        for factor in ignored_factors:
+            sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
 
     X = X[sample_mask, :]
     y = data.latents_values[sample_mask, :]
@@ -203,6 +173,35 @@ def prepare_data(
     return X, y, factor2idx
 
 
+def decompose(X: np.ndarray, method: str, n_components: int) -> DecompositionResult:
+    """Decomposes the flattened images either PCA or FactorAnalysis.
+
+    Args:
+        X: the array of flattened images
+        method: The way to preprocess the data, {PCA, FA}
+        n_components: Number of component to produce in the representation.
+
+    Returns:
+        A DecompositionResult object with the representations of the images
+        in the decomposed space and, in the case of PCA, the explained variance ratios
+    """
+    assert method in [
+        "PCA",
+        "FA",
+        "FactorAnalysis",
+    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
+
+    if method == "PCA":
+        trans = PCA(n_components=n_components)
+    else:
+        trans = FactorAnalysis(n_components=n_components)
+
+    X = StandardScaler().fit_transform(X)
+    X = trans.fit_transform(X)
+
+    return DecompositionResult(X=X, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None)
+
+
 def load_dsprites_preprocessed(
     filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
     download_ok: bool = True,
@@ -215,7 +214,7 @@ def load_dsprites_preprocessed(
     Args:
         filepath: The location of the dsprites data.
         download_ok: If the data can be downloaded.
-        method: The way to preprocess the data, {PCA, FA]
+        method: The way to preprocess the data, {PCA, FA}
         n_components: Number of component to produce in the representation.
         factors: Which factors to return.
         ignored_factors: Which factors should be kept constant in the dataset.
@@ -229,65 +228,22 @@ def load_dsprites_preprocessed(
         appropriate factors from the returned ones.
     """
 
-    assert method in [
-        "PCA",
-        "FA",
-        "FactorAnalysis",
-    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
-
     if factors is None:
         # By default, return all factors
-        factors = [
-            DSpritesFactor.SHAPE,
-            DSpritesFactor.SCALE,
-            DSpritesFactor.ORIENTATION,
-            DSpritesFactor.X,
-            DSpritesFactor.Y,
-        ]
+        factors = list(factor_names.keys())
 
     # Load raw data
     data = load_dsprites(filepath, download_ok)
 
     # Flatten and filter the data
-    X, y, factor2idx = prepare_data(
-        data, factors=factors, ignored_factors=ignored_factors if ignored_factors is not None else []
-    )
+    X, y, factor2idx = prepare_data(data, factors=factors, ignored_factors=ignored_factors)
 
     # Reduce the dimensionality
-    if method == "PCA":
-        trans = PCA(n_components=n_components)
-    else:
-        trans = FactorAnalysis(n_components=n_components)
-
-    X = StandardScaler().fit_transform(X)
-    X = trans.fit_transform(X)
+    decomposition_result = decompose(X, method, n_components=n_components)
 
     return PreprocessedDSpritesDataset(
-        X, y, factor2idx, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None
+        decomposition_result.X, y, factor2idx, pca_ratios=decomposition_result.pca_ratios
     )
-
-
-# TODO (Anej)
-def split(
-    X: np.ndarray, y: np.ndarray, p_train: float = 0.7, p_val: float = 0.1
-) -> Tuple[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]:
-    """Split the data into train, validation, and test sets.
-    Could be made deterministic for this specific dataset later.
-    """
-    n = len(X)
-    permutation = np.random.permutation(n)
-    end_train, end_val = int(p_train * n), int((p_train + p_val) * n)
-    X_train, X_val, X_test = (
-        X[permutation, :][:end_train],
-        X[permutation, :][end_train:end_val],
-        X[permutation, :][end_val:],
-    )
-    y_train, y_val, y_test = (
-        y[permutation, :][:end_train],
-        y[permutation, :][end_train:end_val],
-        y[permutation, :][end_val:],
-    )
-    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 
 if __name__ == "__main__":
