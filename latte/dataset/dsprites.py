@@ -1,9 +1,11 @@
 import dataclasses
 import pathlib
-
-from typing import Tuple, Union
+from enum import IntEnum
+from typing import Tuple, Union, List, Dict, Optional
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA, FactorAnalysis
 
 import latte.dataset.utils as dsutils
 
@@ -11,6 +13,40 @@ import latte.dataset.utils as dsutils
 DEFAULT_TARGET = "dataset/raw/dsprites.npz"
 DSPRITES_URL = "https://github.com/deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
 MD5_CHECKSUM = "7da33b31b13a06f4b04a70402ce90c2e"
+
+
+# Factors of variation in the dSprites dataset and their dimensions
+# in the latents data structure
+class DSpritesFactor(IntEnum):
+    COLOR = 0
+    SHAPE = 1
+    SCALE = 2
+    ORIENTATION = 3
+    X = 4
+    Y = 5
+
+
+# Maps the dSprites factors of variation to their descriptive names
+factor_names = {
+    DSpritesFactor.SHAPE: "Shape",
+    DSpritesFactor.SCALE: "Scale",
+    DSpritesFactor.ORIENTATION: "Orientation",
+    DSpritesFactor.X: "Position x",
+    DSpritesFactor.Y: "Position y",
+}
+
+
+# Maps the dSprites factors of variation to a value in their range
+# so that we can effectively remove the factor of variation by filtering
+# the images which do not have this specified value.
+# This removes the variation in that factor (keeps it constant) and downsizes the dataset.
+fixed_values = {
+    DSpritesFactor.SHAPE: 1,
+    DSpritesFactor.SCALE: 1,
+    DSpritesFactor.ORIENTATION: 0,
+    DSpritesFactor.X: 15 / 31,
+    DSpritesFactor.Y: 15 / 31,
+}
 
 
 @dataclasses.dataclass
@@ -27,6 +63,20 @@ class DSpritesDataset:
     imgs: np.ndarray
     latents_values: np.ndarray
     latents_classes: np.ndarray
+
+
+@dataclasses.dataclass
+class PreprocessedDSpritesDataset:
+    X: np.ndarray
+    y: np.ndarray
+    factor2idx: Dict[DSpritesFactor, int]
+    pca_ratios: Optional[np.ndarray]
+
+
+@dataclasses.dataclass
+class DecompositionResult:
+    X: np.ndarray
+    pca_ratios: Optional[np.ndarray]
 
 
 def _parse_metadata(data) -> DSpritesMetadata:
@@ -79,6 +129,121 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
         latents_values=data["latents_values"],
         latents_classes=data["latents_classes"],
         imgs=data["imgs"],
+    )
+
+
+def prepare_data(
+    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: Optional[List[DSpritesFactor]]
+) -> Tuple[np.ndarray, np.ndarray, Dict[DSpritesFactor, int]]:
+    """Converts the raw dSprites data into Numpy arrays which will be
+    processed by PCA.
+    Args:
+        data: DSpritesDataset object
+        factors: Which factors to keep the information about in the returned data
+        ignored_factors: Which factors should be held fixed (all the variation in them will be removed)
+
+    Returns:
+        X: flattened images with constant-valued pixels removed
+        y: the values of the selected factors of variation for each image
+        factor2idx: a dictionary mapping each dSprites factor (DSpritesFactor)
+                    to the dimension of y in which it is captured
+    """
+    # Flatten images
+    X = data.imgs.reshape((len(data.imgs), -1))
+
+    # Select the images of interest by ignoring the variation of factors
+    # we are not interested in
+    sample_mask = np.ones(data.latents_values.shape[0], dtype=bool)
+    if ignored_factors is not None:
+        for factor in ignored_factors:
+            sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
+
+    X = X[sample_mask, :]
+    y = data.latents_values[sample_mask, :]
+
+    # Filter out constant pixels
+    X = X[:, X.max(axis=0) == 1]
+
+    # Keep only the factors that we want
+    y = y[:, factors]
+
+    # The dictionary which maps each of the factors of interest
+    # into the dimension of the returned factors y
+    factor2idx = {factor: ii for ii, factor in enumerate(factors)}
+
+    return X, y, factor2idx
+
+
+def decompose(X: np.ndarray, method: str, n_components: int) -> DecompositionResult:
+    """Decomposes the flattened images either PCA or FactorAnalysis.
+
+    Args:
+        X: the array of flattened images
+        method: The way to preprocess the data, {PCA, FA}
+        n_components: Number of component to produce in the representation.
+
+    Returns:
+        A DecompositionResult object with the representations of the images
+        in the decomposed space and, in the case of PCA, the explained variance ratios
+    """
+    assert method in [
+        "PCA",
+        "FA",
+        "FactorAnalysis",
+    ], f"Method {method} is not supported, only PCA and FactorAnalysis supported."
+
+    if method == "PCA":
+        trans = PCA(n_components=n_components)
+    else:
+        trans = FactorAnalysis(n_components=n_components)
+
+    X = StandardScaler().fit_transform(X)
+    X = trans.fit_transform(X)
+
+    return DecompositionResult(X=X, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None)
+
+
+def load_dsprites_preprocessed(
+    filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
+    download_ok: bool = True,
+    method: str = "PCA",
+    n_components: int = 20,
+    factors: Optional[List[DSpritesFactor]] = None,
+    ignored_factors: Optional[List[DSpritesFactor]] = None,
+) -> PreprocessedDSpritesDataset:
+    """Load the dSprites dataset and preprocess it using PCA or FactorAnalysis.
+    Args:
+        filepath: The location of the dsprites data.
+        download_ok: If the data can be downloaded.
+        method: The way to preprocess the data, {PCA, FA}
+        n_components: Number of component to produce in the representation.
+        factors: Which factors to return.
+        ignored_factors: Which factors should be kept constant in the dataset.
+            The data is filtered and reduced such that these factors have a constant value.
+
+    Returns:
+        A preprocessedDSpritesDataset holding the filtered transformed data
+        (coordinates in PCA or FA component space), the filtered latent factors,
+        the PCA variance explained proportions in case method="PCA", and a dictionary
+        mapping each of the returned factors to the dimension in `y` to be able to select
+        appropriate factors from the returned ones.
+    """
+
+    if factors is None:
+        # By default, return all factors
+        factors = list(factor_names.keys())
+
+    # Load raw data
+    data = load_dsprites(filepath, download_ok)
+
+    # Flatten and filter the data
+    X, y, factor2idx = prepare_data(data, factors=factors, ignored_factors=ignored_factors)
+
+    # Reduce the dimensionality
+    decomposition_result = decompose(X, method, n_components=n_components)
+
+    return PreprocessedDSpritesDataset(
+        decomposition_result.X, y, factor2idx, pca_ratios=decomposition_result.pca_ratios
     )
 
 
