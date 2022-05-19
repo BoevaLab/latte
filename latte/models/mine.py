@@ -172,11 +172,11 @@ class MINE(pl.LightningModule):
         elif self.kind == MINEObjectiveType.MINE_BIASED:
             mi = mine_objective_biased(t, t_marginal)
 
-        return mi
+        return -mi
 
     def mi(self, x: torch.Tensor, z: torch.Tensor, z_marginal: torch.Tensor = None) -> torch.Tensor:
         with torch.no_grad():
-            mi = self.forward(x, z, z_marginal)
+            mi = -self.forward(x, z, z_marginal)
 
         return mi
 
@@ -188,13 +188,13 @@ class MINE(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx) -> None:
         x, z = batch
-        mi = self.mi(x, z)
+        mi = -self.mi(x, z)
         self.log("validation_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def test_step(self, batch, batch_idx) -> None:
         x, z = batch
-        mi = self.mi(x, z)
+        mi = -self.mi(x, z)
         self.log("test_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate, maximize=True)
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate, maximize=False)
