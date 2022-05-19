@@ -29,24 +29,20 @@ def create_data(n: int, d: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def optimal_directions(
-    points: np.ndarray, scores: np.ndarray, budget: int, random_generator: int
+    points: np.ndarray, scores: np.ndarray, budget: int, seed: int
 ) -> Dict[str, Union[rnd.OptimizationResult, lin_reg.OptimizationResult]]:
     """Computes the optimal directions found by various implemented procedures."""
     results = {}
     results["spearman"] = rnd.find_best_direction(
-        points, scores, SpearmanCorrelationMetric(), budget=budget, random_generator=random_generator + 1
+        points, scores, SpearmanCorrelationMetric(), budget=budget, seed=seed + 1
     )
-    results["kendall"] = rnd.find_best_direction(
-        points, scores, KendallTauMetric(), budget=budget, random_generator=random_generator + 2
-    )
-    results["mi"] = rnd.find_best_direction(
-        points, scores, MutualInformationMetric(), budget=budget, random_generator=random_generator + 3
-    )
+    results["kendall"] = rnd.find_best_direction(points, scores, KendallTauMetric(), budget=budget, seed=seed + 2)
+    results["mi"] = rnd.find_best_direction(points, scores, MutualInformationMetric(), budget=budget, seed=seed + 3)
     results["lr"] = lin_reg.find_best_direction(points, scores)
     return results
 
 
-def score_distributions(points: np.ndarray, scores: np.ndarray, m: int, random_generator: int) -> Dict[str, np.ndarray]:
+def score_distributions(points: np.ndarray, scores: np.ndarray, m: int, seed: int) -> Dict[str, np.ndarray]:
     """Samples random directions in the representation space and calculates
     various metrics of agreement between those and the ground-truth direction."""
     distributions = {}
@@ -55,13 +51,13 @@ def score_distributions(points: np.ndarray, scores: np.ndarray, m: int, random_g
         scores=scores,
         metric=SpearmanCorrelationMetric(),
         budget=m,
-        random_generator=random_generator,
+        seed=seed,
     ).metrics
     distributions["kendall"] = rnd.find_metric_distribution(
-        points=points, scores=scores, metric=KendallTauMetric(), budget=m, random_generator=random_generator
+        points=points, scores=scores, metric=KendallTauMetric(), budget=m, seed=seed
     ).metrics
     distributions["mi"] = rnd.find_metric_distribution(
-        points=points, scores=scores, metric=MutualInformationMetric(), budget=m, random_generator=random_generator
+        points=points, scores=scores, metric=MutualInformationMetric(), budget=m, seed=seed
     ).metrics
     return distributions
 
@@ -156,10 +152,10 @@ def main(cfg: RandomLinesConfig):
     points, scores, direction = create_data(n=n, d=d)
 
     # get the directions found by all the methods we consider
-    results = optimal_directions(points, scores, budget, random_generator=seed)
+    results = optimal_directions(points, scores, budget, seed=seed)
 
     # get the distribution of the Spearman correlation coefficient
-    distributions = score_distributions(points, scores, m=m, random_generator=seed)
+    distributions = score_distributions(points, scores, m=m, seed=seed)
 
     # plot
     if d == 2:
