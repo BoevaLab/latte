@@ -14,6 +14,7 @@ DEFAULT_TARGET = "dataset/raw/dsprites.npz"
 DSPRITES_URL = "https://github.com/deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"
 MD5_CHECKSUM = "7da33b31b13a06f4b04a70402ce90c2e"
 
+
 # Factors of variation in the dSprites dataset and their dimensions
 # in the latents data structure
 class DSpritesFactor(IntEnum):
