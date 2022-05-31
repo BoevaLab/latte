@@ -10,10 +10,11 @@ The code is inspired by and based on https://github.com/gtegner/mine-pytorch.
 from enum import Enum
 from typing import Any, Union, Dict, Tuple, Optional
 
+import geoopt
+
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from torch import Tensor
 
 
 EPSILON = 1e-6
@@ -71,6 +72,21 @@ def mine_objective_biased(t: torch.Tensor, t_marginal: torch.Tensor) -> torch.Te
     return torch.mean(t) - (torch.logsumexp(t_marginal, 0) - torch.log(torch.tensor(t_marginal.shape[0])))
 
 
+class ManifoldProjectionLayer(nn.Module):
+    """A custom layer to project a tensor onto a linear subspace spanned by a k-frame from a Stiefel manifold."""
+
+    def __init__(self, V: geoopt.ManifoldTensor):
+        """
+        Args:
+            V: The k-frame spanning the subspace to be projected on.
+        """
+        super().__init__()
+        self.V = V
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x @ self.V
+
+
 class ConcatLayer(nn.Module):
     """A custom layer to concatenate two vectors."""
 
@@ -117,6 +133,25 @@ class StatisticsNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         return self.S(x, z)
+
+
+class ManifoldStatisticsNetwork(StatisticsNetwork):
+    """The specialised statistics network which projects the random variable X
+    onto the linear subspace spanned by the k-frame V before combining it with Z.
+    """
+
+    def __init__(self, S: nn.Module, V: geoopt.ManifoldTensor, out_dim: int):
+        """
+        Args:
+        S: The arbitrary network connecting X and Z
+        out_dim: The size of the output of S, to be able to stick a final single-output linear layer on top
+        """
+        # super().__init__()
+
+        if isinstance(S, nn.Sequential):
+            self.S = MultiInputSequential(ManifoldProjectionLayer(V), ConcatLayer(), *S, nn.Linear(out_dim, 1))
+        else:
+            self.S = MultiInputSequential(ManifoldProjectionLayer(V), ConcatLayer(), S, nn.Linear(out_dim, 1))
 
 
 class MINE(pl.LightningModule):
@@ -180,7 +215,7 @@ class MINE(pl.LightningModule):
 
         return mi
 
-    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[Tensor, Dict[str, Tensor]]]]:
+    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
         x, z = batch
         mi = self(x, z)
         self.log("train_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -197,4 +232,5 @@ class MINE(pl.LightningModule):
         self.log("test_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate, maximize=False)
+        # TODO (Anej): return the geoopt optimiser if the network is projecting
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
