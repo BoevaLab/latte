@@ -75,16 +75,14 @@ def mine_objective_biased(t: torch.Tensor, t_marginal: torch.Tensor) -> torch.Te
 class ManifoldProjectionLayer(nn.Module):
     """A custom layer to project a tensor onto a linear subspace spanned by a k-frame from a Stiefel manifold."""
 
-    def __init__(self, d: int, k: int, device: torch.device = torch.device("cuda")):
+    def __init__(self, d: int, k: int):
         """
         Args:
             d: Dimension of the observable space
             k: Dimension of the subspace to project to
-            device: The device on which to keep the manifold k-frame on
         """
         super().__init__()
-        self.A = geoopt.Stiefel().random(d, k, device=device).requires_grad_(True)
-        # self.A = geoopt.Stiefel().random(d, k).requires_grad_(True)
+        self.A = geoopt.ManifoldParameter(geoopt.Stiefel().random(d, k))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x @ self.A
@@ -143,18 +141,17 @@ class ManifoldStatisticsNetwork(StatisticsNetwork):
     onto the linear subspace spanned by the k-frame V before combining it with Z.
     """
 
-    def __init__(self, S: nn.Module, d: int, k: int, out_dim: int, device: torch.device = torch.device("cuda")):
+    def __init__(self, S: nn.Module, d: int, k: int, out_dim: int):
         """
         Args:
             S: The arbitrary network connecting X and Z
             d: Dimension of the observable space
             k: Dimension of the subspace to project to
             out_dim: The size of the output of S, to be able to stick a final single-output linear layer on top
-            device: The device on which to keep the manifold k-frame on
         """
         super().__init__(S, out_dim)
 
-        self.projection_layer = ManifoldProjectionLayer(d, k, device=device)
+        self.projection_layer = ManifoldProjectionLayer(d, k)
 
     def forward(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         return self.S(self.projection_layer(x), z)
@@ -266,6 +263,8 @@ class ManifoldMINE(MINE):
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
         return [
-            torch.optim.Adam(self.parameters(), lr=self.learning_rate),
+            torch.optim.Adam(list(self.parameters())[:-1], lr=self.learning_rate),
+            # Do *not* include the projection layer, which is, by the implementation of the ManifoldStatisticsNetwork,
+            # the last parameter of the model
             geoopt.optim.RiemannianAdam(params=[self.T.projection_layer.A], lr=self.manifold_learning_rate),
         ]
