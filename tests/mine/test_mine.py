@@ -15,10 +15,6 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-"""
-Some 1D distributions for which we have a good MI estimate
-(and we can compare it with the KSG estimator implemented in sklearn).
-"""
 
 rng = np.random.default_rng(42)
 torch.manual_seed(42)
@@ -260,7 +256,7 @@ def test_worse_bound(objective_type: mine.MINEObjectiveType) -> None:
 
 # DONE
 # @pytest.mark.skip("Too long to run")
-class TestFindMetricDistribution:
+class TestMINE:
     @pytest.mark.parametrize("n_samples", (16,))
     @pytest.mark.parametrize("d", (1, 2))
     @pytest.mark.parametrize(

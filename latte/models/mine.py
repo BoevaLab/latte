@@ -220,18 +220,18 @@ class MINE(pl.LightningModule):
     def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
         x, z = batch
         loss = self(x, z)
-        self.log("train_mutual_information", -loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx) -> None:
         x, z = batch
         mi = self.mi(x, z)
-        self.log("validation_mutual_information", mi, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("validation_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def test_step(self, batch, batch_idx) -> None:
         x, z = batch
         mi = self.mi(x, z)
-        self.log("test_mutual_information", mi, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("test_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
@@ -258,7 +258,7 @@ class ManifoldMINE(MINE):
         model_optimizer.step()
         manifold_optimizer.step()
 
-        self.log("train_mutual_information", -loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
