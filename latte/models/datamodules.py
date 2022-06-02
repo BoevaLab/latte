@@ -58,16 +58,24 @@ class GenericMINEDataModule(pl.LightningDataModule):
         self.mine_test = ds.MINEDataset(X=torch.from_numpy(self.X_test), Z=torch.from_numpy(self.y_test))
 
     def train_dataloader(self):
-        return DataLoader(self.mine_train, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_train, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.mine_val, batch_size=self.test_batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_val, batch_size=self.test_batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.mine_test, batch_size=self.test_batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_test, batch_size=self.test_batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def predict_dataloader(self):
-        return DataLoader(self.mine_test, batch_size=self.test_batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_test, batch_size=self.test_batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
 
 class DSpritesPCADataModule(pl.LightningDataModule):
@@ -110,9 +118,8 @@ class DSpritesPCADataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
 
-        # TODO (Anej): (optional) make use of stage [fit, test, predict]
-
-        dataset = dsprites.load_dsprites_preprocessed(
+        # The raw dataset with the original images and principal components
+        self.dataset = dsprites.load_dsprites_preprocessed(
             method="PCA",
             n_components=self.n_components,
             factors=self.target_factors,
@@ -120,20 +127,28 @@ class DSpritesPCADataModule(pl.LightningDataModule):
         )
 
         (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = utils.split(
-            dataset.X.astype(np.float32), dataset.y.astype(np.float32), p_train=self.p_train, p_val=self.p_val
+            self.dataset.X.astype(np.float32), self.dataset.y.astype(np.float32), p_train=self.p_train, p_val=self.p_val
         )
         self.mine_train = ds.MINEDataset(X=torch.from_numpy(self.X_train), Z=torch.from_numpy(self.y_train))
         self.mine_val = ds.MINEDataset(X=torch.from_numpy(self.X_val), Z=torch.from_numpy(self.y_val))
         self.mine_test = ds.MINEDataset(X=torch.from_numpy(self.X_test), Z=torch.from_numpy(self.y_test))
 
     def train_dataloader(self):
-        return DataLoader(self.mine_train, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_train, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.mine_val, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_val, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.mine_test, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_test, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True
+        )
 
     def predict_dataloader(self):
-        return DataLoader(self.mine_test, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(
+            self.mine_test, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True
+        )

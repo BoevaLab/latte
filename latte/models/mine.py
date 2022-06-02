@@ -245,6 +245,10 @@ class ManifoldMINE(MINE):
         self.automatic_optimization = False
 
     def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
+        """The training step of the manifold-augmented MINE module.
+        Since it requires simultaneous optimisation with two optimisers
+        (working on the gradients of the same backward pass), the default
+        Lightning implementation is not flexible enough and custom handling is required."""
 
         model_optimizer, manifold_optimizer = self.optimizers()
 
@@ -262,6 +266,7 @@ class ManifoldMINE(MINE):
         return loss
 
     def configure_optimizers(self) -> List[torch.optim.Optimizer]:
+        """Return both the optimiser for MINE statistics network parameters and the manifold k-frame."""
         return [
             torch.optim.Adam(list(self.parameters())[:-1], lr=self.learning_rate),
             # Do *not* include the projection layer, which is, by the implementation of the ManifoldStatisticsNetwork,
