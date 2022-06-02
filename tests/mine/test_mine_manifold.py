@@ -160,7 +160,7 @@ def test_projection_layer_changes() -> None:
 
 
 class TestMINEManifold:
-    @pytest.mark.parametrize("n_samples", (32,))
+    @pytest.mark.parametrize("n_samples", (128,))
     @pytest.mark.parametrize("d", (2, 3))
     @pytest.mark.parametrize("k", (1, 2))
     @pytest.mark.parametrize("n_epochs", (32,))
