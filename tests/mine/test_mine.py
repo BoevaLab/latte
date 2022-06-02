@@ -263,7 +263,7 @@ class TestMINE:
         "objective_type",
         (mine.MINEObjectiveType.MINE, mine.MINEObjectiveType.MINE_BIASED, mine.MINEObjectiveType.F_DIV),
     )
-    @pytest.mark.parametrize("n_epochs", (4,))
+    @pytest.mark.parametrize("n_epochs", (32,))
     def test_smoke(self, n_samples: int, d: int, objective_type: mine.MINEObjectiveType, n_epochs: int) -> None:
 
         x = rng.uniform(-1, 1, size=(n_samples, 1))
