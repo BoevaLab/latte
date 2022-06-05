@@ -158,6 +158,15 @@ class ManifoldStatisticsNetwork(StatisticsNetwork):
 
 
 class MINE(pl.LightningModule):
+    """
+    Pytorch Lightning module for a network estimating the mutual information between two random variables based
+    on their empirical samples.
+    This is done by maximising a lower bound on the mutual information.
+    Note that the forward call to the model computes the *negative* of the estimate to frame the optimisation
+    as a more standard minimisation.
+    The estimate of the mutual information can be obtained by calling model.mi().
+    """
+
     def __init__(
         self,
         T: StatisticsNetwork,
@@ -209,9 +218,14 @@ class MINE(pl.LightningModule):
         elif self.kind == MINEObjectiveType.MINE_BIASED:
             mi = mine_objective_biased(t, t_marginal)
 
+        # Since we are *maximising* the estimate of the mutual information, we return the negative of the estimate
+        # as the value of the loss to frame this as a more standard *minimisation* problem
         return -mi
 
     def mi(self, x: torch.Tensor, z: torch.Tensor, z_marginal: torch.Tensor = None) -> torch.Tensor:
+        """
+        A utility function that returns the estimate of the mutual information from a trained model.
+        """
         with torch.no_grad():
             mi = -self(x, z, z_marginal)
 

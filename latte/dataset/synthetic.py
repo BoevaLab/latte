@@ -5,8 +5,7 @@ import dataclasses
 import numpy as np
 import geoopt
 
-
-rng = np.random.default_rng(42)
+from latte.dataset.utils import RandomGenerator
 
 
 @dataclasses.dataclass
@@ -51,6 +50,7 @@ def synthetic_dataset(
     fs: List[Callable[[np.ndarray], np.ndarray]],
     spread: float = 1,
     sigma: float = 0,
+    rng: RandomGenerator = 42,
 ) -> SyntheticDataset:
     """
     Generate a synthetic dataset of n d-dimensional points (observations) X sampled from an isotropic Gaussian.
@@ -73,9 +73,12 @@ def synthetic_dataset(
         spread: The standard deviation of the Gaussian used to generate the observations.
         sigma: The standard deviation of the noise added to the observations
                to make the discovery of the subspace harder.
+        rng: The random number generator for the dataset.
     Returns:
         A SyntheticDataset object
     """
+
+    rng = np.random.default_rng(rng)
 
     X = rng.normal(scale=spread, size=(n, d))  # The true observations
 
@@ -89,15 +92,32 @@ def synthetic_dataset(
     return SyntheticDataset(X=X_noisy, A=A, Y=Y, Z=Z)
 
 
-def gaussian_data(n: int, d: int, k: int, sigma: float = 0.1, spread: float = 1.0) -> GaussianGenerativeDataset:
+def gaussian_data(
+    n: int, d: int, k: int, sigma: float = 0.1, spread: float = 1.0, rng: RandomGenerator = 42
+) -> GaussianGenerativeDataset:
     """
     Function generating a dataset according to the probabilistic PCA generative model.
 
     We assume we only have access to the d-dimensional observations, while the k-dimensional subspace
     (and the projections of the observations on it) are unknown.
-    A small subset of the true projection values can be used to try to find these subspace, and then to evaluate the
+    A small subset of the true projection values can be used to try to find this subspace, and then to evaluate the
     quality of the fit.
+
+    Args:
+        n: Number of samples to generate.
+        d: The dimension of the observable space.
+        k: The dimension of the linear subspace which the data is projected on.
+        spread: The standard deviation of the Gaussian used to generate the observations.
+        sigma: The standard deviation of the noise added to the observations
+               to make the discovery of the subspace harder.
+        rng: The random number generator for the dataset.
+
+    Returns:
+        Populated GaussianGenerativeDataset
     """
+
+    rng = np.random.default_rng(rng)
+
     Z = rng.normal(scale=spread, size=(n, k))  # The generative factors
 
     A = rng.normal(size=(d, k))  # The mixing/loading matrix
