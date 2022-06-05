@@ -160,10 +160,10 @@ def test_projection_layer_changes() -> None:
 
 
 class TestMINEManifold:
-    @pytest.mark.parametrize("n_samples", (2000,))
+    @pytest.mark.parametrize("n_samples", (512,))
     @pytest.mark.parametrize("d", (2, 3))
     @pytest.mark.parametrize("k", (1, 2))
-    @pytest.mark.parametrize("n_epochs", (128,))
+    @pytest.mark.parametrize("n_epochs", (64,))
     def test_smoke(self, n_samples: int, d: int, k: int, n_epochs: int) -> None:
 
         if k == 1:
