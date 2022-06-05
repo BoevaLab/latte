@@ -19,3 +19,17 @@ class MINEDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.X[idx], self.Z[idx]
+
+
+class PretrainDataset(Dataset):
+    """A general dataset class to store samples of variables we would like to
+    calculate the mutual information between."""
+
+    def __init__(self, X: torch.Tensor):
+        self.X: torch.Tensor = X
+
+    def __len__(self) -> int:
+        return len(self.X)
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        return self.X[idx]

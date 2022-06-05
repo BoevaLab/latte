@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import pytorch_lightning as pl
 
-from latte.models import mine
+from latte.mine import mine
 
 
 class MetricTracker(pl.Callback):
