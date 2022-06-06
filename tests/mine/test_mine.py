@@ -15,10 +15,6 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-"""
-Some 1D distributions for which we have a good MI estimate
-(and we can compare it with the KSG estimator implemented in sklearn).
-"""
 
 rng = np.random.default_rng(42)
 torch.manual_seed(42)
@@ -260,14 +256,14 @@ def test_worse_bound(objective_type: mine.MINEObjectiveType) -> None:
 
 # DONE
 # @pytest.mark.skip("Too long to run")
-class TestFindMetricDistribution:
+class TestMINE:
     @pytest.mark.parametrize("n_samples", (16,))
     @pytest.mark.parametrize("d", (1, 2))
     @pytest.mark.parametrize(
         "objective_type",
         (mine.MINEObjectiveType.MINE, mine.MINEObjectiveType.MINE_BIASED, mine.MINEObjectiveType.F_DIV),
     )
-    @pytest.mark.parametrize("n_epochs", (4,))
+    @pytest.mark.parametrize("n_epochs", (32,))
     def test_smoke(self, n_samples: int, d: int, objective_type: mine.MINEObjectiveType, n_epochs: int) -> None:
 
         x = rng.uniform(-1, 1, size=(n_samples, 1))
@@ -313,3 +309,9 @@ class TestFindMetricDistribution:
             if hasattr(layer, "weight"):
                 assert torch.linalg.norm(initial_layer_weights[ii] - layer.weight) > 0
                 ii += 1
+
+        # Assert that the model call returns a *negative* value
+        # (the negative of the MI estimate, which should be *positive*)
+        with torch.no_grad():
+            for batch in data.test_dataloader():
+                assert model(batch) < 0

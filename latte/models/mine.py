@@ -8,12 +8,13 @@ Mutual information neural estimation. 35th International Conference on Machine L
 The code is inspired by and based on https://github.com/gtegner/mine-pytorch.
 """
 from enum import Enum
-from typing import Any, Union, Dict, Tuple, Optional
+from typing import Any, Union, Dict, Tuple, Optional, List
+
+import geoopt
 
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from torch import Tensor
 
 
 EPSILON = 1e-6
@@ -46,7 +47,7 @@ class MINEBiasCorrection(torch.autograd.Function):
 
 def mine_objective(
     t: torch.Tensor, t_marginal: torch.Tensor, running_mean: torch.Tensor, alpha: float
-) -> Union[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """The partially bias-corrected loss function which keeps a running mean
     of the denominator of the second term from expression (12) in the paper."""
 
@@ -69,6 +70,22 @@ def mine_objective_biased(t: torch.Tensor, t_marginal: torch.Tensor) -> torch.Te
     """The simple version of the DV-formulation-based MINE loss function
     which does not correct for the bias in any way."""
     return torch.mean(t) - (torch.logsumexp(t_marginal, 0) - torch.log(torch.tensor(t_marginal.shape[0])))
+
+
+class ManifoldProjectionLayer(nn.Module):
+    """A custom layer to project a tensor onto a linear subspace spanned by a k-frame from a Stiefel manifold."""
+
+    def __init__(self, d: int, k: int):
+        """
+        Args:
+            d: Dimension of the observable space
+            k: Dimension of the subspace to project to
+        """
+        super().__init__()
+        self.A = geoopt.ManifoldParameter(geoopt.Stiefel().random(d, k))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x @ self.A
 
 
 class ConcatLayer(nn.Module):
@@ -119,14 +136,43 @@ class StatisticsNetwork(nn.Module):
         return self.S(x, z)
 
 
+class ManifoldStatisticsNetwork(StatisticsNetwork):
+    """The specialised statistics network which projects the random variable X
+    onto the linear subspace spanned by the k-frame V before combining it with Z.
+    """
+
+    def __init__(self, S: nn.Module, d: int, k: int, out_dim: int):
+        """
+        Args:
+            S: The arbitrary network connecting X and Z
+            d: Dimension of the observable space
+            k: Dimension of the subspace to project to
+            out_dim: The size of the output of S, to be able to stick a final single-output linear layer on top
+        """
+        super().__init__(S, out_dim)
+
+        self.projection_layer = ManifoldProjectionLayer(d, k)
+
+    def forward(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        return self.S(self.projection_layer(x), z)
+
+
 class MINE(pl.LightningModule):
+    """
+    Pytorch Lightning module for a network estimating the mutual information between two random variables based
+    on their empirical samples.
+    This is done by maximising a lower bound on the mutual information.
+    Note that the forward call to the model computes the *negative* of the estimate to frame the optimisation
+    as a more standard minimisation.
+    The estimate of the mutual information can be obtained by calling model.mi().
+    """
+
     def __init__(
         self,
         T: StatisticsNetwork,
         kind: MINEObjectiveType = MINEObjectiveType.MINE,
         learning_rate: float = 1e-4,
         alpha: Optional[float] = 0.01,
-        **kwargs,
     ):
         """
         Args:
@@ -172,19 +218,24 @@ class MINE(pl.LightningModule):
         elif self.kind == MINEObjectiveType.MINE_BIASED:
             mi = mine_objective_biased(t, t_marginal)
 
-        return mi
+        # Since we are *maximising* the estimate of the mutual information, we return the negative of the estimate
+        # as the value of the loss to frame this as a more standard *minimisation* problem
+        return -mi
 
     def mi(self, x: torch.Tensor, z: torch.Tensor, z_marginal: torch.Tensor = None) -> torch.Tensor:
+        """
+        A utility function that returns the estimate of the mutual information from a trained model.
+        """
         with torch.no_grad():
-            mi = self.forward(x, z, z_marginal)
+            mi = -self(x, z, z_marginal)
 
         return mi
 
-    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[Tensor, Dict[str, Tensor]]]]:
+    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
         x, z = batch
-        mi = self(x, z)
-        self.log("train_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return mi
+        loss = self(x, z)
+        self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return loss
 
     def validation_step(self, batch, batch_idx) -> None:
         x, z = batch
@@ -197,4 +248,42 @@ class MINE(pl.LightningModule):
         self.log("test_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate, maximize=True)
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+
+
+class ManifoldMINE(MINE):
+    def __init__(self, manifold_learning_rate: float = 1e-3, **kwargs):
+        super().__init__(**kwargs)
+        self.manifold_learning_rate = manifold_learning_rate
+
+        self.automatic_optimization = False
+
+    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
+        """The training step of the manifold-augmented MINE module.
+        Since it requires simultaneous optimisation with two optimisers
+        (working on the gradients of the same backward pass), the default
+        Lightning implementation is not flexible enough and custom handling is required."""
+
+        model_optimizer, manifold_optimizer = self.optimizers()
+
+        x, z = batch
+
+        loss = self(x, z)
+
+        model_optimizer.zero_grad()
+        manifold_optimizer.zero_grad()
+        self.manual_backward(loss)
+        model_optimizer.step()
+        manifold_optimizer.step()
+
+        self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return loss
+
+    def configure_optimizers(self) -> List[torch.optim.Optimizer]:
+        """Return both the optimiser for MINE statistics network parameters and the manifold k-frame."""
+        return [
+            torch.optim.Adam(list(self.parameters())[:-1], lr=self.learning_rate),
+            # Do *not* include the projection layer, which is, by the implementation of the ManifoldStatisticsNetwork,
+            # the last parameter of the model
+            geoopt.optim.RiemannianAdam(params=[self.T.projection_layer.A], lr=self.manifold_learning_rate),
+        ]

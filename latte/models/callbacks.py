@@ -27,3 +27,6 @@ class WeightsTracker(pl.Callback):
         for ii, layer in enumerate(module.T.S):
             if hasattr(layer, "weight"):
                 self.epoch_weights[ii].append(layer.weight.cpu().detach().numpy().copy())
+
+        if isinstance(module, mine.ManifoldMINE):
+            self.epoch_weights[len(module.T.S)].append(module.T.projection_layer.A.data.cpu().detach().numpy().copy())
