@@ -309,3 +309,9 @@ class TestMINE:
             if hasattr(layer, "weight"):
                 assert torch.linalg.norm(initial_layer_weights[ii] - layer.weight) > 0
                 ii += 1
+
+        # Assert that the model call returns a *negative* value
+        # (the negative of the MI estimate, which should be *positive*)
+        with torch.no_grad():
+            for batch in data.test_dataloader():
+                assert model(batch) < 0

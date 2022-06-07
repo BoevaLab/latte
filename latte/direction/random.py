@@ -10,16 +10,13 @@ import numpy as np
 import numpy.typing as ntypes
 
 import latte.direction.metrics as metrics
-
-
-# Seed (or generator) we can use to initialize a random number generator
-_Generator = Union[int, np.random.Generator]
+from latte.dataset.utils import RandomGenerator
 
 
 def get_random_directions(
     n_directions: int,
     dim: int,
-    random_generator: _Generator = 1,
+    random_generator: RandomGenerator = 1,
     _scale: float = 10.0,
 ) -> np.ndarray:
     """Generates `n_directions` random directions in `dim`-dimensional space.
@@ -58,7 +55,7 @@ def find_metric_distribution(
     scores: Sequence[float],
     metric: metrics.AxisMetric,
     budget: int = 200,
-    seed: _Generator = 1,
+    seed: RandomGenerator = 1,
 ) -> _MetricsAndVectors:
     """Uniformly samples over all possible directions and returns
     the (sample from the) distribution of scores and directions.

@@ -10,6 +10,10 @@ import numpy as np
 from typing import Literal, Union  # pytype: disable=not-supported-yet
 
 
+# Seed (or generator) we can use to initialize a random number generator
+RandomGenerator = Union[int, np.random.Generator]
+
+
 def _load_uint8(f):
     idx_dtype, ndim = struct.unpack("BBBB", f.read(4))[2:]
     shape = struct.unpack(">" + "I" * ndim, f.read(4 * ndim))

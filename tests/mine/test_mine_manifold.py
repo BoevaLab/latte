@@ -4,7 +4,7 @@ from pytorch_lightning import Trainer
 import numpy as np
 import pytest
 
-from latte.mine import datamodules as dm, mine, callbacks as cbs
+from latte.models import datamodules as dm, mine, callbacks as cbs
 from latte.dataset import synthetic
 
 import warnings
@@ -160,10 +160,10 @@ def test_projection_layer_changes() -> None:
 
 
 class TestMINEManifold:
-    @pytest.mark.parametrize("n_samples", (128,))
+    @pytest.mark.parametrize("n_samples", (512,))
     @pytest.mark.parametrize("d", (2, 3))
     @pytest.mark.parametrize("k", (1, 2))
-    @pytest.mark.parametrize("n_epochs", (32,))
+    @pytest.mark.parametrize("n_epochs", (64,))
     def test_smoke(self, n_samples: int, d: int, k: int, n_epochs: int) -> None:
 
         if k == 1:
