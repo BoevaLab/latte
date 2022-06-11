@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import sklearn.feature_selection as skfs
 
-from latte.mine import datamodules as dm, mine, callbacks as cbs
+from latte.mine import mine, callbacks as cbs
+from latte.models import datamodules as dm
 
 import warnings
 
