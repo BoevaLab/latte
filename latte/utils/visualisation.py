@@ -271,7 +271,7 @@ def _plot_points(
     ax: matplotlib.axes.Axes,
     dim: int,
     f: Optional[np.ndarray],
-    color: Optional[str],
+    color: str,
     alpha: float,
     legend_elements: List[Any],
     legend_names: List[str],
