@@ -39,7 +39,9 @@ def get_mine_prediction(
     batch_size: int = 32,
 ) -> float:
     """Calculates the MINE estimate of mutual information between x and y by training the network."""
-    data = dm.GenericMINEDataModule(X=x, Z=y, p_train=0.5, p_val=0.1, batch_size=batch_size)
+    data = dm.GenericMINEDataModule(
+        X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.1, batch_size=batch_size
+    )
 
     # construct the MINE estimator
     if small:
@@ -159,7 +161,7 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
     x = rng.multivariate_normal(mu, sigma, size=n_samples)
     y = x + rng.normal(0, 1, size=x.shape)
 
-    data = dm.GenericMINEDataModule(X=x, Z=y, p_train=0.5, p_val=0.5, batch_size=32)
+    data = dm.GenericMINEDataModule(X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=32)
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -192,7 +194,9 @@ def test_value_changes() -> None:
     x = rng.uniform(-5, 5, size=(1000, 1))
     y = transforms[0](x)
 
-    data = dm.GenericMINEDataModule(X=x, Z=y, p_train=0.95, p_val=0.025, batch_size=32)
+    data = dm.GenericMINEDataModule(
+        X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.95, p_val=0.025, batch_size=32
+    )
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -258,7 +262,7 @@ def test_worse_bound(objective_type: mine.MINEObjectiveType) -> None:
 # DONE
 # @pytest.mark.skip("Too long to run")
 class TestMINE:
-    @pytest.mark.parametrize("n_samples", (16,))
+    @pytest.mark.parametrize("n_samples", (64,))
     @pytest.mark.parametrize("d", (1, 2))
     @pytest.mark.parametrize(
         "objective_type",
@@ -270,7 +274,9 @@ class TestMINE:
         x = rng.uniform(-1, 1, size=(n_samples, 1))
         y = transforms[0](x)
 
-        data = dm.GenericMINEDataModule(X=x, Z=y, p_train=0.5, p_val=0.5, batch_size=16)
+        data = dm.GenericMINEDataModule(
+            X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=16
+        )
 
         # construct the MINE estimator
         S = mine.StatisticsNetwork(

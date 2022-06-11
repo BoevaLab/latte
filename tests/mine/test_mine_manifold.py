@@ -42,7 +42,14 @@ def test_close_solution(n_samples: int, d: int, k: int) -> None:
     # Right now, we only test 2-dimensional subspaces
     dataset = synthetic.synthetic_dataset(n_samples, d=d, k=k, fs=fs)
 
-    data = dm.GenericMINEDataModule(dataset.X, dataset.Z, p_train=0.9, p_val=0.05, batch_size=128, test_batch_size=1024)
+    data = dm.GenericMINEDataModule(
+        torch.from_numpy(dataset.X),
+        torch.from_numpy(dataset.Z),
+        p_train=0.9,
+        p_val=0.05,
+        batch_size=128,
+        test_batch_size=1024,
+    )
 
     # construct the MINE estimator
     S = mine.ManifoldStatisticsNetwork(
@@ -92,7 +99,14 @@ def test_loss_decrease(n_samples: int, d: int) -> None:
     k = 2
     dataset = synthetic.synthetic_dataset(n_samples, d=d, k=k, fs=fs)
 
-    data = dm.GenericMINEDataModule(dataset.X, dataset.Z, p_train=0.5, p_val=0.4, batch_size=128, test_batch_size=1024)
+    data = dm.GenericMINEDataModule(
+        torch.from_numpy(dataset.X),
+        torch.from_numpy(dataset.Z),
+        p_train=0.5,
+        p_val=0.4,
+        batch_size=128,
+        test_batch_size=1024,
+    )
 
     # construct the MINE estimator
     S = mine.ManifoldStatisticsNetwork(
@@ -131,7 +145,12 @@ def test_projection_layer_changes() -> None:
     dataset = synthetic.synthetic_dataset(1024, d=d, k=k, fs=fs)
 
     data = dm.GenericMINEDataModule(
-        dataset.X, dataset.Z, p_train=0.95, p_val=0.025, batch_size=128, test_batch_size=1024
+        torch.from_numpy(dataset.X),
+        torch.from_numpy(dataset.Z),
+        p_train=0.95,
+        p_val=0.025,
+        batch_size=128,
+        test_batch_size=1024,
     )
 
     # construct the MINE estimator
@@ -175,7 +194,12 @@ class TestMINEManifold:
         dataset = synthetic.synthetic_dataset(n_samples, d, k=k, fs=fs)
 
         data = dm.GenericMINEDataModule(
-            dataset.X, dataset.Z, p_train=0.7, p_val=0.1, batch_size=128, test_batch_size=1024
+            torch.from_numpy(dataset.X),
+            torch.from_numpy(dataset.Z),
+            p_train=0.7,
+            p_val=0.1,
+            batch_size=128,
+            test_batch_size=1024,
         )
 
         # construct the MINE estimator
