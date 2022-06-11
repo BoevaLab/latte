@@ -4,7 +4,8 @@ from pytorch_lightning import Trainer
 import numpy as np
 import pytest
 
-from latte.models import datamodules as dm, mine, callbacks as cbs
+from latte.models import datamodules as dm
+from latte.mine import mine, callbacks as cbs
 from latte.dataset import synthetic
 
 import warnings
