@@ -18,7 +18,7 @@ from latte.direction.api import (
     MutualInformationMetric,
 )
 
-DEFAULT_TARGET = "figures/linear"
+_DEFAULT_TARGET = "figures/linear"
 
 
 def create_data(n: int, d: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -137,7 +137,7 @@ class RandomLinesConfig:
 def main(cfg: RandomLinesConfig):
 
     # create the directory for storing the figures
-    filepath = pathlib.Path(DEFAULT_TARGET)
+    filepath = pathlib.Path(_DEFAULT_TARGET)
     filepath.mkdir(exist_ok=True, parents=True)
 
     n = cfg.n

@@ -36,11 +36,17 @@ class GaussianGenerativeDataset:
         X: A `n x d` matrix of the observables
         Z: The `n x k` matrix of the generative latent factors
         A: The `d x k` mixing/loading matrix
+        mu: the shift added to the transformed generative factors (mean of the observables)
+        Q, R: `d x k` and `k x k` matrices. The QR decomposition of the loading matrix for easier projection to the
+               span of A.
     """
 
     X: np.ndarray
     Z: np.ndarray
     A: np.ndarray
+    mu: np.ndarray
+    Q: np.ndarray
+    R: np.ndarray
 
 
 def synthetic_dataset(
@@ -120,8 +126,12 @@ def gaussian_data(
 
     Z = rng.normal(scale=spread, size=(n, k))  # The generative factors
 
-    A = rng.normal(size=(d, k))  # The mixing/loading matrix
+    # TODO (Anej): Is this a good enough way to generate `A`?
+    A = rng.normal(size=(d, k))  # The mixing/loading matrix; it can be any `d x k` matrix
+    Q, R = np.linalg.qr(A)  # Decompose the generated loading matrix to get the actual column-orthonormal matrix Q
+    mu = rng.normal(size=(d,))
+    epsilon = rng.normal(scale=sigma, size=(n, d))
 
-    X = Z @ A.T + rng.normal(scale=sigma, size=(n, d))  # The observables
+    X = Z @ A.T + mu + epsilon  # The observables
 
-    return GaussianGenerativeDataset(X=X, Z=Z, A=A)
+    return GaussianGenerativeDataset(X=X, Z=Z, A=A, mu=mu, Q=Q, R=R)

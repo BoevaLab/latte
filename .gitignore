@@ -6,6 +6,7 @@
 *.npz
 data/
 outputs/
+multirun/
 
 # Image data
 *.gif

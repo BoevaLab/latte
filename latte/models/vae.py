@@ -1,10 +1,18 @@
+"""
+This is a very simple implementation of a VAE used for preliminary testing purposes in the package.
+"""
+
 from abc import abstractmethod, ABCMeta
-from typing import Tuple
+from typing import Tuple, Optional, Dict
 from enum import Enum
 
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
+
+from tqdm import tqdm
+
+from latte.models import datamodules as dm
 
 
 class VAEReconstructionLossType(Enum):
@@ -124,3 +132,61 @@ class BetaVAE(VAE):
         dimension_wise_kl: torch.Tensor,
     ) -> torch.Tensor:
         return reconstruction_loss + self.beta * total_kl
+
+
+def get_representations(
+    vae_model: VAE, data: dm.BaseDataModule, A: Optional[torch.Tensor] = None
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    """
+    A small utility function to extract the hidden representations given by the model to the provided data.
+    Since the representations can be used downstream (and we want to prevent data leakage), it is assumed that the data
+    is split into train, val, and test splits, and this split is kept intact.
+    Args:
+        vae_model: The model we want to the representations from
+        data: The Lightning datamodule containing (split) data we want to get the representations for
+        A: The projection matrix to use for the optional projection to the subspace
+
+    Returns:
+        Z: The produced representations for the data, where we take the mean representation produced by the model
+           as the latent representation
+        F: For convenience, the corresponding factors of variation included in the data
+    """
+
+    # To make inference faster, set the train batch size to the test one temporarily
+    original_batch_size = data.batch_size
+    data.batch_size = data.test_batch_size
+
+    splits = ["train", "val", "test"]
+    dataloaders = dict(
+        zip(
+            splits,
+            [
+                data.train_dataloader(shuffle=False),
+                data.val_dataloader(shuffle=False),
+                data.test_dataloader(shuffle=False),
+            ],
+        )
+    )
+
+    Z = {split: [] for split in splits}  # Will contain the *representations* (the latent vectors)
+    F = {split: [] for split in splits}  # Will contain the *factors* of variation
+    with torch.no_grad():
+        for split, dataloader in dataloaders.items():
+            for batch in tqdm(dataloader, leave=False):
+                # TODO (Anej): Currently this assumes a dataloader which returns representations and "labels"
+                # Make it work with arbitrary dataloaders
+                x, f = batch
+                z = vae_model.encoder(x)[:, : vae_model.latent_size]  # We extract `mu`
+                if A is not None:
+                    z = z @ A
+                Z[split].append(z.detach().cpu())
+                F[split].append(f.detach().cpu())
+
+    # Concatenate all the batches into a single tensor
+    for split in splits:
+        Z[split] = torch.cat(Z[split])
+        F[split] = torch.cat(F[split])
+
+    data.batch_size = original_batch_size
+
+    return Z, F
