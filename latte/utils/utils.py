@@ -1,5 +1,5 @@
 from typing import List
-from collections import defaultdict as dd
+from collections import defaultdict
 from itertools import product
 
 import pandas as pd
@@ -21,7 +21,7 @@ def axis_factor_mutual_information(Z: torch.Tensor, F: torch.Tensor, factor_name
         factor in `F`.
     """
 
-    mis = dd(lambda: dd(float))
+    mis = defaultdict(lambda: defaultdict(float))
     for ii, (factor_name, axis) in enumerate(product(factor_names, range(Z.shape[1]))):
         mis[f"Axis {axis}"][factor_name] = feature_selection.mutual_info_regression(
             F[:, ii // Z.shape[1]].reshape((-1, 1)), Z[:, axis]

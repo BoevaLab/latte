@@ -59,6 +59,7 @@ def _construct_mine_model(
     Returns:
         The constructed model
     """
+    # TODO: Generalise this to allow passing a pre-specified model
     if manifold:
         assert subspace_size != 0, "No target subspace size provided"
         S = mine.ManifoldStatisticsNetwork(

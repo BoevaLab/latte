@@ -209,7 +209,6 @@ def decompose(X: np.ndarray, method: str, n_components: int) -> DecompositionRes
 
     X = StandardScaler().fit_transform(X)
     X = trans.fit_transform(X)
-    # X = StandardScaler().fit_transform(X)
 
     return DecompositionResult(X=X, pca_ratios=trans.explained_variance_ratio_ if method == "PCA" else None)
 
