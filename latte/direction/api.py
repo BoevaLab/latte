@@ -1,6 +1,6 @@
 import latte.direction.random as random
 import latte.direction.linear_regression as linear_regression
-from latte.models.mine import MINEObjectiveType, MINE, StatisticsNetwork
+from latte.mine.mine import MINEObjectiveType, MINE, StatisticsNetwork
 import latte.direction.optimization as optimization
 from latte.direction.metrics import (
     AxisMetric,

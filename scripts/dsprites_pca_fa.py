@@ -11,7 +11,7 @@ from latte.direction.api import linear_regression as lr, unit_vector
 from latte.dataset import dsprites
 
 
-DEFAULT_TARGET = "figures/dsprites"
+_DEFAULT_TARGET = "figures/dsprites"
 
 
 @hy.config
@@ -103,7 +103,7 @@ def main(cfg: DSpritesExplorationConfig):
     assert method in ["PCA", "FA"], f"Dimensionality reduction method {method} not supported."
     assert len(set(factors).intersection(set(ignored_factors))) == 0, "Some factors are both ignored and of interest."
 
-    filepath = pathlib.Path(DEFAULT_TARGET) / method
+    filepath = pathlib.Path(_DEFAULT_TARGET) / method
     filepath.mkdir(exist_ok=True, parents=True)
 
     data = dsprites.load_dsprites_preprocessed(

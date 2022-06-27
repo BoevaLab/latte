@@ -133,7 +133,11 @@ def load_dsprites(filepath: Union[str, pathlib.Path] = DEFAULT_TARGET, download_
 
 
 def prepare_data(
-    data: DSpritesDataset, factors: List[DSpritesFactor], ignored_factors: Optional[List[DSpritesFactor]]
+    data: DSpritesDataset,
+    factors: List[DSpritesFactor],
+    ignored_factors: Optional[List[DSpritesFactor]],
+    return_raw: bool = False,
+    keep_all_dimensions: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[DSpritesFactor, int]]:
     """Converts the raw dSprites data into Numpy arrays which will be
     processed by PCA.
@@ -141,6 +145,8 @@ def prepare_data(
         data: DSpritesDataset object
         factors: Which factors to keep the information about in the returned data
         ignored_factors: Which factors should be held fixed (all the variation in them will be removed)
+        return_raw: Whether to return the raw image data (and not decompose it using the specified method).
+        keep_all_dimensions: If true, do not remove dimensions with zero variance (useful for later reconstruction)
 
     Returns:
         X: flattened images with constant-valued pixels removed
@@ -148,8 +154,8 @@ def prepare_data(
         factor2idx: a dictionary mapping each dSprites factor (DSpritesFactor)
                     to the dimension of y in which it is captured
     """
-    # Flatten images
-    X = data.imgs.reshape((len(data.imgs), -1))
+
+    X = data.imgs
 
     # Select the images of interest by ignoring the variation of factors
     # we are not interested in
@@ -158,11 +164,15 @@ def prepare_data(
         for factor in ignored_factors:
             sample_mask *= data.latents_values[:, factor] == fixed_values[DSpritesFactor(factor)]
 
-    X = X[sample_mask, :]
+    X = X[sample_mask]
     y = data.latents_values[sample_mask, :]
 
-    # Filter out constant pixels
-    X = X[:, X.max(axis=0) == 1]
+    if not return_raw and not keep_all_dimensions:
+        # Flatten images
+        X = data.imgs.reshape((len(data.imgs), -1))
+
+        # Filter out constant pixels
+        X = X[:, X.max(axis=0) == 1]
 
     # Keep only the factors that we want
     y = y[:, factors]
@@ -206,23 +216,27 @@ def decompose(X: np.ndarray, method: str, n_components: int) -> DecompositionRes
 def load_dsprites_preprocessed(
     filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
     download_ok: bool = True,
-    method: str = "PCA",
-    n_components: int = 20,
+    return_raw: bool = False,
+    method: Optional[str] = "PCA",
+    n_components: Optional[int] = 20,
     factors: Optional[List[DSpritesFactor]] = None,
     ignored_factors: Optional[List[DSpritesFactor]] = None,
+    keep_all_dimensions: bool = False,
 ) -> PreprocessedDSpritesDataset:
-    """Load the dSprites dataset and preprocess it using PCA or FactorAnalysis.
+    """Load the dSprites dataset and optionally preprocess it using PCA or FactorAnalysis.
     Args:
         filepath: The location of the dsprites data.
         download_ok: If the data can be downloaded.
+        return_raw: Whether to return the raw image data (and not decompose it using the specified method).
         method: The way to preprocess the data, {PCA, FA}
         n_components: Number of component to produce in the representation.
         factors: Which factors to return.
         ignored_factors: Which factors should be kept constant in the dataset.
             The data is filtered and reduced such that these factors have a constant value.
+        keep_all_dimensions: If true, do not remove dimensions with zero variance (useful for later reconstruction)
 
     Returns:
-        A preprocessedDSpritesDataset holding the filtered transformed data
+        A preprocessedDSpritesDataset holding the filtered and optionally transformed data
         (coordinates in PCA or FA component space), the filtered latent factors,
         the PCA variance explained proportions in case method="PCA", and a dictionary
         mapping each of the returned factors to the dimension in `y` to be able to select
@@ -237,14 +251,27 @@ def load_dsprites_preprocessed(
     data = load_dsprites(filepath, download_ok)
 
     # Flatten and filter the data
-    X, y, factor2idx = prepare_data(data, factors=factors, ignored_factors=ignored_factors)
-
-    # Reduce the dimensionality
-    decomposition_result = decompose(X, method, n_components=n_components)
-
-    return PreprocessedDSpritesDataset(
-        decomposition_result.X, y, factor2idx, pca_ratios=decomposition_result.pca_ratios
+    X, y, factor2idx = prepare_data(
+        data,
+        factors=factors,
+        ignored_factors=ignored_factors,
+        keep_all_dimensions=keep_all_dimensions,
+        return_raw=return_raw,
     )
+
+    if not return_raw:
+        # Reduce the dimensionality
+        decomposition_result = decompose(X, method, n_components=n_components)
+        X = decomposition_result.X
+        pca_ratios = decomposition_result.pca_ratios
+    else:
+        pca_ratios = None
+
+    if return_raw:
+        # Expand dimensions to be of the correct form for pytorch processing...
+        X = np.expand_dims(X, axis=1)
+
+    return PreprocessedDSpritesDataset(X, y, factor2idx, pca_ratios=pca_ratios)
 
 
 if __name__ == "__main__":
