@@ -181,7 +181,7 @@ def plot_latent_traversals(
 
             # The values to which the dimensions will be set correspond to quantiles
             # of the distribution over the entire dataset
-            qs = np.linspace(0.1, 0.9, n_values)
+            qs = np.linspace(0.01, 0.99, n_values)
             values = np.quantile(Z["train"][:, axis], q=qs)
 
             for j in range(n_values):
@@ -324,7 +324,7 @@ def visualise_synthetic_data(
 
     fig = plt.figure()
     if dim == 2:
-        ax = fig.add_subplot(11)
+        ax = fig.add_subplot(111)
     else:
         ax = fig.add_subplot(111, projection="3d")
     # Construct the lines showing the basis defined by the matrices
@@ -377,13 +377,24 @@ def visualise_synthetic_data(
             "Predicted linear subspace",
         )
 
-    ax.set(
-        title=f"{dim}D Gaussian with nonlinear factors of variation",
-        xlabel="x",
-        ylabel="y",
-        zlabel="z" if dim == 3 else None,
-    )
-    ax.legend(legend_elements, legend_names, labelcolor=legend_colors)
+    if dim == 2:
+        ax.set(
+            title=f"{dim}D Gaussian with nonlinear factors of variation",
+            xlabel="x",
+            ylabel="y",
+        )
+    else:
+        ax.set(
+            title=f"{dim}D Gaussian with nonlinear factors of variation",
+            xlabel="x",
+            ylabel="y",
+            zlabel="z" if dim == 3 else None,
+        )
+
+    if f is None:
+        ax.legend(legend_elements, legend_names, labelcolor=legend_colors)
+    else:
+        ax.legend(*legend_elements[0].legend_elements())
 
     if file_name is not None:
         fig.savefig(file_name)
