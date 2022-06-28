@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
+from latte.models.layers import ManifoldProjectionLayer, ConcatLayer, MultiInputSequential
+
 
 EPSILON = 1e-6
 
@@ -70,46 +72,6 @@ def mine_objective_biased(t: torch.Tensor, t_marginal: torch.Tensor) -> torch.Te
     """The simple version of the DV-formulation-based MINE loss function
     which does not correct for the bias in any way."""
     return torch.mean(t) - (torch.logsumexp(t_marginal, 0) - torch.log(torch.tensor(t_marginal.shape[0])))
-
-
-class ManifoldProjectionLayer(nn.Module):
-    """A custom layer to project a tensor onto a linear subspace spanned by a k-frame from a Stiefel manifold."""
-
-    def __init__(self, d: int, k: int):
-        """
-        Args:
-            d: Dimension of the observable space
-            k: Dimension of the subspace to project to
-        """
-        super().__init__()
-        self.A = geoopt.ManifoldParameter(geoopt.Stiefel().random(d, k))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x @ self.A
-
-
-class ConcatLayer(nn.Module):
-    """A custom layer to concatenate two vectors."""
-
-    def __init__(self, dim: int = 1):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return torch.cat((x, y), self.dim)
-
-
-class MultiInputSequential(nn.Sequential):
-    """A custom Module which augments the normal Sequential Module
-    to be able to take multiple inputs at the same time."""
-
-    def forward(self, *x: torch.Tensor) -> torch.Tensor:
-        for module in self._modules.values():
-            if isinstance(x, tuple):
-                x = module(*x)
-            else:
-                x = module(x)
-        return x
 
 
 class StatisticsNetwork(nn.Module):
@@ -178,7 +140,7 @@ class MINE(pl.LightningModule):
         Args:
             T: The statistics network which will be optimised to estimate the mutual information
             kind: The type of objective to use
-            learning_rate: The learning rate for the running mean to correct for the bias in the gradient estimates
+            learning_rate: The learning rate for the statistics network parameters
             alpha: The update step size of the bias correction
         """
         super().__init__()
@@ -253,6 +215,12 @@ class MINE(pl.LightningModule):
 
 class ManifoldMINE(MINE):
     def __init__(self, manifold_learning_rate: float = 1e-3, **kwargs):
+        """
+
+        Args:
+            manifold_learning_rate: The learning rate for the manifold parameters
+            **kwargs: The kwargs for MINE
+        """
         super().__init__(**kwargs)
         self.manifold_learning_rate = manifold_learning_rate
 

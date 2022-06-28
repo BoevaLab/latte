@@ -79,7 +79,32 @@ class BaseDataModule(pl.LightningDataModule):
         )
 
 
-class GenericMINEDataModule(BaseDataModule):
+class GenericDataModule(BaseDataModule):
+    """A generic DataModule for serving observations and targets."""
+
+    def __init__(self, X: torch.Tensor, Y: torch.Tensor, **kwargs):
+        """
+
+        Args:
+            X: observations
+            Y: targets
+            kwargs: kwargs to be passed to BaseDataModule
+        """
+
+        super().__init__(**kwargs)
+
+        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = dataset_utils.split(
+            X.type(torch.FloatTensor), Y.type(torch.FloatTensor), p_train=self.p_train, p_val=self.p_val
+        )
+
+    def setup(self, stage: Optional[str] = None):
+
+        self.train_data = ds.GenericDataset(X=self.X_train, Y=self.y_train)
+        self.val_data = ds.GenericDataset(X=self.X_val, Y=self.y_val)
+        self.test_data = ds.GenericDataset(X=self.X_test, Y=self.y_test)
+
+
+class GenericMINEDataModule(GenericDataModule):
     """A generic DataModule for serving data from two distributions to MINE."""
 
     def __init__(self, X: torch.Tensor, Z: torch.Tensor, **kwargs):
@@ -91,17 +116,7 @@ class GenericMINEDataModule(BaseDataModule):
             kwargs: kwargs to be passed to BaseDataModule
         """
 
-        super().__init__(**kwargs)
-
-        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = dataset_utils.split(
-            X.type(torch.FloatTensor), Z.type(torch.FloatTensor), p_train=self.p_train, p_val=self.p_val
-        )
-
-    def setup(self, stage: Optional[str] = None):
-
-        self.train_data = ds.MINEDataset(X=self.X_train, Z=self.y_train)
-        self.val_data = ds.MINEDataset(X=self.X_val, Z=self.y_val)
-        self.test_data = ds.MINEDataset(X=self.X_test, Z=self.y_test)
+        super().__init__(X=X, Y=Z, **kwargs)
 
 
 class SplitMINEDataModule(GenericMINEDataModule):

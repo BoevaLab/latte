@@ -135,3 +135,9 @@ def gaussian_data(
     X = Z @ A.T + mu + epsilon  # The observables
 
     return GaussianGenerativeDataset(X=X, Z=Z, A=A, mu=mu, Q=Q, R=R)
+
+
+def gaussian_log_likelihood(X, A_hat, mu_hat, sigma_hat):
+    d = A_hat.shape[0]
+    C_hat = A_hat @ A_hat.T + sigma_hat**2 * np.eye(d)
+    return -1 / 2 * (np.log(d * 2 * np.pi + np.linalg.det(C_hat)) + np.sum(((X - mu_hat) @ C_hat.T) * (X - mu_hat)))

@@ -1,4 +1,5 @@
-from typing import Dict, Optional, List, Any
+import pathlib
+from typing import Dict, Optional, List, Any, Union
 from itertools import product
 
 import numpy as np
@@ -300,7 +301,7 @@ def visualise_synthetic_data(
     A_hat: Optional[np.ndarray] = None,
     f: Optional[np.ndarray] = None,
     alphas: Dict[str, float] = {"observable": 0.1, "true_projections": 0.2, "estimated_projections": 0.3},
-    file_name: Optional[str] = None,
+    file_name: Optional[Union[str, pathlib.Path]] = None,
 ) -> None:
     """
     Visualises 2D or 3D synthetic data.
@@ -410,7 +411,8 @@ def visualise_generative_model_in_3d(
     A_hat: Optional[np.ndarray] = None,
     mu_hat: Optional[np.ndarray] = None,
     alphas: Dict[str, float] = {"observable": 0.1, "true_projections": 0.2, "estimated_projections": 0.3},
-    file_name: Optional[str] = None,
+    title: Optional[str] = None,
+    file_name: Optional[Union[str, pathlib.Path]] = None,
 ) -> None:
     """
     Plots 3D observable data coming from a generative model in the form of factor analysis, and optionally the
@@ -427,6 +429,7 @@ def visualise_generative_model_in_3d(
                 It should contain the keys "observable", "true_projections", "estimated_projections", where the latter
                 two are only needed if also plotting the corresponding points.
                 Useful to configure depending on the number of points plotting.
+        title: Optional plot title
         file_name: Optional file name to save the produced figure.
 
     """
@@ -463,7 +466,7 @@ def visualise_generative_model_in_3d(
         legend_names.append("Projections on the predicted linear subspace")
         legend_colors.append("tab:orange")
 
-    ax.set(title="3D generative Gaussian", xlabel="x", ylabel="y", zlabel="z")
+    ax.set(title="3D pPCA" if title is None else title, xlabel="x", ylabel="y", zlabel="z")
     ax.legend(legend_elements, legend_names, labelcolor=legend_colors)
 
     if file_name is not None:
