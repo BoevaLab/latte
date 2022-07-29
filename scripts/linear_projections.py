@@ -1,3 +1,7 @@
+"""
+Evaluates and demonstrates the random directions optimisation on 2D and 3D datasets with synthetic data.
+"""
+
 import pathlib
 import dataclasses
 from typing import Dict, Union, Tuple

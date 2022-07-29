@@ -1,28 +1,31 @@
 """
-Implementation of the modular MINE model for estimating the mutual information
-between two arbitrary random variables.
+Implementation of the modular MINE model for estimating the mutual information between two arbitrary random variables.
 Based on:
 Belghazi, M. I., Baratin, A., Rajeswar, S., Ozair, S., Bengio, Y., Courville, A., & Hjelm, R. D. (2018).
 Mutual information neural estimation. 35th International Conference on Machine Learning, ICML 2018, 2, 864–873.
 
 The code is inspired by and based on https://github.com/gtegner/mine-pytorch.
+
+It contains a standalone Pytorch Lightning module implementation which can be used for estimation and a pure
+pytorch version which is easier to plug into other models, e.g., MIST.
 """
 from enum import Enum
-from typing import Any, Union, Dict, Tuple, Optional, List
-
-import geoopt
+from typing import Any, Union, Dict, Tuple, Optional
 
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from latte.models.layers import ManifoldProjectionLayer, ConcatLayer, MultiInputSequential
+from latte.modules.layers import ManifoldProjectionLayer, ConcatLayer, MultiInputSequential
 
 
 EPSILON = 1e-6
 
 
 class MINEObjectiveType(Enum):
+    """The different types of objectives used by MINE.
+    `Latte` mainly uses the bias-corrected MINE objective."""
+
     MINE = 1
     F_DIV = 2
     MINE_BIASED = 3
@@ -100,26 +103,27 @@ class StatisticsNetwork(nn.Module):
 
 class ManifoldStatisticsNetwork(StatisticsNetwork):
     """The specialised statistics network which projects the random variable X
-    onto the linear subspace spanned by the k-frame V before combining it with Z.
+    onto the linear subspace spanned by the d-frame V before combining it with Z.
     """
 
-    def __init__(self, S: nn.Module, d: int, k: int, out_dim: int):
+    def __init__(self, S: nn.Module, n: int, d: int, out_dim: int, init: Optional[torch.Tensor] = None):
         """
         Args:
             S: The arbitrary network connecting X and Z
-            d: Dimension of the observable space
-            k: Dimension of the subspace to project to
+            n: Dimension of the observable space
+            d: Dimension of the subspace to project to
             out_dim: The size of the output of S, to be able to stick a final single-output linear layer on top
+            init: An optional initial setting of the manifold parameter
         """
         super().__init__(S, out_dim)
 
-        self.projection_layer = ManifoldProjectionLayer(d, k)
+        self.projection_layer = ManifoldProjectionLayer(n, d, init=init)
 
     def forward(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         return self.S(self.projection_layer(x), z)
 
 
-class MINE(pl.LightningModule):
+class StandaloneMINE(pl.LightningModule):
     """
     Pytorch Lightning module for a network estimating the mutual information between two random variables based
     on their empirical samples.
@@ -127,6 +131,10 @@ class MINE(pl.LightningModule):
     Note that the forward call to the model computes the *negative* of the estimate to frame the optimisation
     as a more standard minimisation.
     The estimate of the mutual information can be obtained by calling model.mi().
+
+    This is a standalone implementation of the model which can be used to approximate the mutual information
+    between two distributions.
+    The `MINE` class below is used as a module in other models, e.g., MIST.
     """
 
     def __init__(
@@ -134,7 +142,10 @@ class MINE(pl.LightningModule):
         T: StatisticsNetwork,
         kind: MINEObjectiveType = MINEObjectiveType.MINE,
         learning_rate: float = 1e-4,
-        alpha: Optional[float] = 0.01,
+        alpha: float = 0.01,
+        lr_scheduler_patience: int = 8,
+        lr_scheduler_min_delta: float = 0.0,
+        verbose: bool = False,
     ):
         """
         Args:
@@ -142,6 +153,9 @@ class MINE(pl.LightningModule):
             kind: The type of objective to use
             learning_rate: The learning rate for the statistics network parameters
             alpha: The update step size of the bias correction
+            lr_scheduler_patience: The patience for the ReduceOnPlateu learning rate scheduler
+            lr_scheduler_min_delta: The minimum improvement for the ReduceOnPlateu learning rate scheduler
+            verbose: Controls the verbosity of callbacks and learning rate schedulers
         """
         super().__init__()
 
@@ -149,6 +163,9 @@ class MINE(pl.LightningModule):
         self.T = T
         self.learning_rate = learning_rate
         self.alpha = alpha
+        self.lr_scheduler_patience = lr_scheduler_patience
+        self.lr_scheduler_min_delta = lr_scheduler_min_delta
+        self.verbose = verbose
 
         self.kind = kind
 
@@ -197,61 +214,115 @@ class MINE(pl.LightningModule):
         x, z = batch
         loss = self(x, z)
         self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        return {"loss": loss, "train_mutual_information": -loss}
 
-    def validation_step(self, batch, batch_idx) -> None:
+    def validation_step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         x, z = batch
         mi = self.mi(x, z)
         self.log("validation_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return {"validation_mutual_information": mi}
 
-    def test_step(self, batch, batch_idx) -> None:
+    def test_step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         x, z = batch
         mi = self.mi(x, z)
         self.log("test_mutual_information", mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        return {"test_mutual_information": mi}
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def configure_optimizers(self) -> Dict[str, Union[torch.optim.Optimizer, Dict[str, Any]]]:
+
+        # Optimizer of the statistics network parameters
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+
+        network_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=0.1,
+            patience=self.lr_scheduler_patience,
+            threshold=self.lr_scheduler_min_delta,
+            threshold_mode="abs",
+            verbose=self.verbose,
+            min_lr=1e-6,
+        )
+
+        lr_scheduler_config = {
+            "scheduler": network_lr_scheduler,
+            "interval": "epoch",
+            "monitor": "validation_mutual_information",
+            "strict": True,
+        }
+
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
 
-class ManifoldMINE(MINE):
-    def __init__(self, manifold_learning_rate: float = 1e-3, **kwargs):
+class MINE(nn.Module):
+    """
+    A normal Pytorch module for a network estimating the mutual information between two random variables based
+    on their empirical samples.
+    This is done by maximising a lower bound on the mutual information.
+    Note that the forward call to the model computes the *negative* of the estimate to frame the optimisation
+    as a more standard minimisation.
+    The estimate of the mutual information can be obtained by calling model.mi().
+
+    This is a separate implementation which can be plugged into other estimators (e.g., MIST).
+    """
+
+    def __init__(
+        self,
+        T: StatisticsNetwork,
+        kind: MINEObjectiveType = MINEObjectiveType.MINE,
+        alpha: float = 0.01,
+    ):
         """
-
         Args:
-            manifold_learning_rate: The learning rate for the manifold parameters
-            **kwargs: The kwargs for MINE
+            T: The statistics network which will be optimised to estimate the mutual information
+            kind: The type of objective to use
+            alpha: The update step size of the bias correction
         """
-        super().__init__(**kwargs)
-        self.manifold_learning_rate = manifold_learning_rate
+        super().__init__()
 
-        self.automatic_optimization = False
+        self.running_mean = torch.zeros((1,))
+        self.T = T
+        self.alpha = alpha
 
-    def training_step(self, batch, batch_idx) -> Union[int, Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]]:
-        """The training step of the manifold-augmented MINE module.
-        Since it requires simultaneous optimisation with two optimisers
-        (working on the gradients of the same backward pass), the default
-        Lightning implementation is not flexible enough and custom handling is required."""
+        self.kind = kind
 
-        model_optimizer, manifold_optimizer = self.optimizers()
+    def forward(self, x: torch.Tensor, z: torch.Tensor, z_marginal: torch.Tensor = None) -> torch.Tensor:
+        """
+        Args:
+        x: The sample of X from the joint distribution
+        z: The sample of Z from the joint distribution
+        z_marginal: (optional) A separate sample of the marginal distribution of Z
 
-        x, z = batch
+        """
 
-        loss = self(x, z)
+        # If the marginal z is not provided explicitly, "sample" it by permuting the joint sample batch
+        if z_marginal is None:
+            z_marginal = z[torch.randperm(x.shape[0])]
+        # "Sample" x by permuting the joint sample
+        x_marginal = x[torch.randperm(x.shape[0])]
+        # x_marginal = x
 
-        model_optimizer.zero_grad()
-        manifold_optimizer.zero_grad()
-        self.manual_backward(loss)
-        model_optimizer.step()
-        manifold_optimizer.step()
+        # Pass it to the general function T
+        t = self.T(x, z)
+        t_marginal = self.T(x_marginal, z_marginal)
 
-        self.log("train_mutual_information", -loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        # Calculate the output of the model
+        if self.kind == MINEObjectiveType.MINE:
+            mi, self.running_mean = mine_objective(t, t_marginal, self.running_mean, self.alpha)
+        elif self.kind == MINEObjectiveType.F_DIV:
+            mi = f_div_objective(t, t_marginal)
+        elif self.kind == MINEObjectiveType.MINE_BIASED:
+            mi = mine_objective_biased(t, t_marginal)
 
-    def configure_optimizers(self) -> List[torch.optim.Optimizer]:
-        """Return both the optimiser for MINE statistics network parameters and the manifold k-frame."""
-        return [
-            torch.optim.Adam(list(self.parameters())[:-1], lr=self.learning_rate),
-            # Do *not* include the projection layer, which is, by the implementation of the ManifoldStatisticsNetwork,
-            # the last parameter of the model
-            geoopt.optim.RiemannianAdam(params=[self.T.projection_layer.A], lr=self.manifold_learning_rate),
-        ]
+        # Since we are *maximising* the estimate of the mutual information, we return the negative of the estimate
+        # as the value of the loss to frame this as a more standard *minimisation* problem
+        return -mi
+
+    def mi(self, x: torch.Tensor, z: torch.Tensor, z_marginal: torch.Tensor = None) -> torch.Tensor:
+        """
+        A utility function that returns the estimate of the mutual information from a trained model.
+        """
+        with torch.no_grad():
+            mi = -self(x, z, z_marginal)
+
+        return mi

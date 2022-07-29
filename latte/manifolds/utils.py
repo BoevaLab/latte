@@ -1,3 +1,7 @@
+"""
+Utility (Stiefel) manifold-specific functions.
+"""
+
 import torch
 
 
@@ -16,7 +20,7 @@ def almost_equal(a: torch.Tensor, b: torch.Tensor, atol: float = 1e-3) -> bool:
 
 
 def is_orthonormal(A: torch.Tensor, atol: float = 1e-3) -> bool:
-    """A simple utility function to assert that the learned projection k-frame is column-orthonormal.
+    """A simple utility function to assert that the learned projection d-frame is column-orthonormal.
 
     Args:
         A (torch.Tensor): The (learned) projection matrix
@@ -26,7 +30,7 @@ def is_orthonormal(A: torch.Tensor, atol: float = 1e-3) -> bool:
 
 
 def correct_solution(A: torch.Tensor, A_hat: torch.Tensor, atol: float = 1e-3) -> bool:
-    """Asserts that the learned projection k-frame is close to the solution in artificial datasets.
+    """Asserts that the learned projection d-frame is close to the solution in artificial datasets.
 
     Args:
         A (torch.Tensor): The ground-truth projection matrix

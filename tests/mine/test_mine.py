@@ -7,8 +7,9 @@ import numpy as np
 import pytest
 import sklearn.feature_selection as skfs
 
-from latte.mine import mine, callbacks as cbs
-from latte.models import datamodules as dm
+from latte.models.mine import mine
+from latte.modules import callbacks as cbs
+from latte.modules.data import datamodules as dm
 
 import warnings
 
@@ -39,8 +40,8 @@ def get_mine_prediction(
     batch_size: int = 32,
 ) -> float:
     """Calculates the MINE estimate of mutual information between x and y by training the network."""
-    data = dm.GenericMINEDataModule(
-        X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.1, batch_size=batch_size
+    data = dm.GenericDataModule(
+        X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.1, batch_size=batch_size
     )
 
     # construct the MINE estimator
@@ -60,7 +61,7 @@ def get_mine_prediction(
             out_dim=128,
         )
 
-    model = mine.MINE(T=S, kind=objective_type, alpha=0.01, learning_rate=learning_rate)
+    model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=learning_rate)
     trainer = Trainer(max_epochs=epochs, enable_model_summary=False, enable_progress_bar=False)
     trainer.fit(model, datamodule=data)
     test_result = trainer.test(ckpt_path="best", dataloaders=data, verbose=False)
@@ -161,7 +162,7 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
     x = rng.multivariate_normal(mu, sigma, size=n_samples)
     y = x + rng.normal(0, 1, size=x.shape)
 
-    data = dm.GenericMINEDataModule(X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=32)
+    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=32)
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -174,7 +175,7 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
         out_dim=64,
     )
 
-    model = mine.MINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-4)
+    model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-4)
 
     cb = cbs.MetricTracker()
     trainer = Trainer(max_epochs=50, callbacks=[cb], enable_model_summary=False, enable_progress_bar=False)
@@ -194,9 +195,7 @@ def test_value_changes() -> None:
     x = rng.uniform(-5, 5, size=(1000, 1))
     y = transforms[0](x)
 
-    data = dm.GenericMINEDataModule(
-        X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.95, p_val=0.025, batch_size=32
-    )
+    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.95, p_val=0.025, batch_size=32)
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -209,7 +208,7 @@ def test_value_changes() -> None:
         out_dim=32,
     )
 
-    model = mine.MINE(T=S, kind=mine.MINEObjectiveType.MINE, alpha=0.01)
+    model = mine.StandaloneMINE(T=S, kind=mine.MINEObjectiveType.MINE, alpha=0.01)
 
     cb = cbs.WeightsTracker()
     trainer = Trainer(max_epochs=16, callbacks=[cb], enable_model_summary=False, enable_progress_bar=False)
@@ -274,9 +273,7 @@ class TestMINE:
         x = rng.uniform(-1, 1, size=(n_samples, 1))
         y = transforms[0](x)
 
-        data = dm.GenericMINEDataModule(
-            X=torch.from_numpy(x), Z=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=16
-        )
+        data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=16)
 
         # construct the MINE estimator
         S = mine.StatisticsNetwork(
@@ -289,7 +286,7 @@ class TestMINE:
             out_dim=16,
         )
 
-        model = mine.MINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-2)
+        model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-2)
 
         initial_layer_weights = []
         for layer in model.T.S:
