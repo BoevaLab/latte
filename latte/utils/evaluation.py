@@ -14,13 +14,13 @@ from scipy import optimize
 from sklearn import feature_selection
 
 
-def subspace_fit(Q: np.ndarray, Q_hat: np.ndarray) -> pd.DataFrame:
+def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
     """
     Evaluates the goodness of fit of the found subspace spanned by the estimate of the matrix `A_hat`
     compared to the ground-truth one.
     Args:
-        Q: The ground-truth projection matrix
-        Q_hat: The orthogonal basis of the estimated subspace
+        U: The ground-truth projection matrix
+        U_hat: The orthogonal basis of the estimated subspace
 
     Returns:
         A pandas dataframe containing two evaluation metrics:
@@ -29,8 +29,8 @@ def subspace_fit(Q: np.ndarray, Q_hat: np.ndarray) -> pd.DataFrame:
     """
 
     # We look at the distance between the subspace and *its* projection onto the found subspace defined by `Q_hat`
-    subspace_distance = np.linalg.norm(Q @ Q.T - Q_hat @ Q_hat.T @ Q @ Q.T)
-    normalised_subspace_distance = np.linalg.norm(Q @ Q.T - Q_hat @ Q_hat.T @ Q @ Q.T) / np.linalg.norm(Q @ Q.T)
+    subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T)
+    normalised_subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T) / np.linalg.norm(U @ U.T)
     return pd.DataFrame(
         {
             "Value": {

@@ -814,7 +814,7 @@ def metric_trend(
     """
     fig, ax = plt.subplots(figsize=(4, 2), dpi=200)
 
-    sns.lineplot(data=data, x="x", y="Value", hue="Metric", legend="full", ax=ax)
+    sns.lineplot(data=data, x="x", y="Value", hue="Metric", legend="full", ci="sd", ax=ax)
     ax.set(xlabel=quantity_name)
     legend = ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
 
