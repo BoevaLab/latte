@@ -12,19 +12,27 @@ import geoopt
 class ManifoldProjectionLayer(nn.Module):
     """A custom layer to project a tensor onto a linear subspace spanned by a d-frame from a Stiefel manifold."""
 
-    def __init__(self, n: int, d: int, init: Optional[torch.Tensor] = None):
+    def __init__(self, n: int, d: int, init: Optional[torch.Tensor] = None, stiefel_manifold: bool = True):
         """
         Args:
             n: Dimension of the observable space (the one we want to project *from*).
             d: Dimension of the linear subspace (the one we want to project *onto*).
             init: An optional initial setting of the manifold parameter
+            stiefel_manifold: Whether the projection layer should be on the Stiefel manifold.
+                              This should be left True for almost all use cases, it is mostly here to enable
+                              investigating the effect of the constrained optimisation versus the unconstrained one.
         """
         super().__init__()
         if init is None:
-            self.A = geoopt.ManifoldParameter(geoopt.Stiefel().random(n, d))
+            if stiefel_manifold:
+                self.A = geoopt.ManifoldParameter(geoopt.Stiefel().random(n, d))
+            else:
+                self.A = geoopt.ManifoldParameter(geoopt.Euclidean().random(n, d))
         else:
-            self.A = geoopt.ManifoldParameter(init, manifold=geoopt.Stiefel())
-            # self.A = geoopt.ManifoldParameter(init, manifold=geoopt.Euclidean())
+            if stiefel_manifold:
+                self.A = geoopt.ManifoldParameter(init, manifold=geoopt.Stiefel())
+            else:
+                self.A = geoopt.ManifoldParameter(init, manifold=geoopt.Euclidean())
         # self.A is a `n x d` matrix
         # Notice that due to the shape of the matrix, we have to multiply with its transpose to project a single
         # data point onto the subspace.

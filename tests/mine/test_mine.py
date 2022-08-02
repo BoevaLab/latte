@@ -22,11 +22,11 @@ rng = np.random.default_rng(42)
 torch.manual_seed(42)
 
 transforms = [
-    lambda x: x + rng.normal(0, 0.05, size=(x.shape[0], 1)),
-    lambda x: np.sin(x) + rng.normal(0, 0.05, size=(x.shape[0], 1)),
-    lambda x: x**3 + rng.normal(0, 0.05, size=(x.shape[0], 1)),
-    lambda x: 1 / (np.abs(x) + 1) + rng.normal(0, 0.05, size=(x.shape[0], 1)),
-    lambda x: np.exp(x) + rng.normal(0, 0.05, size=(x.shape[0], 1)),
+    lambda x: x + rng.normal(0, 0.05, size=(x.shape[0], 1)).astype(np.float32),
+    lambda x: np.sin(x) + rng.normal(0, 0.05, size=(x.shape[0], 1)).astype(np.float32),
+    lambda x: x**3 + rng.normal(0, 0.05, size=(x.shape[0], 1)).astype(np.float32),
+    lambda x: 1 / (np.abs(x) + 1) + rng.normal(0, 0.05, size=(x.shape[0], 1)).astype(np.float32),
+    lambda x: np.exp(x) + rng.normal(0, 0.05, size=(x.shape[0], 1)).astype(np.float32),
 ]
 
 
@@ -76,7 +76,7 @@ def function_test(
     transform: Callable, n_samples: int, n_epochs: int, objective_type: mine.MINEObjectiveType
 ) -> Tuple[float, float]:
     """Generates a random sample, transforms it with noise, and estimates the "true" and MINE mutual information"""
-    x = rng.uniform(-1, 1, size=(n_samples, 1))
+    x = rng.uniform(-1, 1, size=(n_samples, 1)).astype(np.float32)
     y = transform(x)
 
     true_mi = skfs.mutual_info_regression(x.reshape((-1, 1)), y, n_neighbors=5)
@@ -119,11 +119,11 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
     [1000],
 )
 def test_multivairate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
-    mu = np.zeros(d)
-    c = rng.random(size=(d, d))
+    mu = np.zeros(d).astype(np.float32)
+    c = rng.random(size=(d, d)).astype(np.float32)
     sigma = c.T @ c
 
-    t = rng.multivariate_normal(mu, sigma, size=n_samples)
+    t = rng.multivariate_normal(mu, sigma, size=n_samples).astype(np.float32)
 
     x = t[:, : d // 2]
     y = t[:, d // 2 :]
@@ -155,14 +155,14 @@ def test_multivairate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
 )
 def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiveType) -> None:
 
-    mu = np.zeros(d)
-    c = rng.random(size=(d, d))
+    mu = np.zeros(d).astype(np.float32)
+    c = rng.random(size=(d, d)).astype(np.float32)
     sigma = c.T @ c
 
-    x = rng.multivariate_normal(mu, sigma, size=n_samples)
+    x = rng.multivariate_normal(mu, sigma, size=n_samples).astype(np.float32)
     y = x + rng.normal(0, 1, size=x.shape)
 
-    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=32)
+    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=32)
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -192,7 +192,7 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
 # @pytest.mark.skip("Too long to run")
 def test_value_changes() -> None:
 
-    x = rng.uniform(-5, 5, size=(1000, 1))
+    x = rng.uniform(-5, 5, size=(1000, 1)).astype(np.float32)
     y = transforms[0](x)
 
     data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.95, p_val=0.025, batch_size=32)
@@ -231,9 +231,9 @@ def test_value_changes() -> None:
 )
 def test_lower_mi(objective_type: mine.MINEObjectiveType) -> None:
 
-    x = rng.uniform(-5, 5, size=(1000, 1))
+    x = rng.uniform(-5, 5, size=(1000, 1)).astype(np.float32)
     y_1 = transforms[0](x)
-    y_2 = y_1 + rng.normal(0, 1, size=y_1.shape)
+    y_2 = y_1 + rng.normal(0, 1, size=y_1.shape).astype(np.float32)
 
     mine_mi_1 = get_mine_prediction(x, y_1, objective_type=objective_type, epochs=100, small=False)
     mine_mi_2 = get_mine_prediction(x, y_2, objective_type=objective_type, epochs=100, small=False)
@@ -249,7 +249,7 @@ def test_lower_mi(objective_type: mine.MINEObjectiveType) -> None:
 )
 def test_worse_bound(objective_type: mine.MINEObjectiveType) -> None:
 
-    x = rng.uniform(-5, 5, size=(1000, 1))
+    x = rng.uniform(-5, 5, size=(1000, 1)).astype(np.float32)
     y = transforms[0](x)
 
     mine_mi_big = get_mine_prediction(x, y, objective_type=objective_type, epochs=100, small=False)
@@ -270,10 +270,10 @@ class TestMINE:
     @pytest.mark.parametrize("n_epochs", (32,))
     def test_smoke(self, n_samples: int, d: int, objective_type: mine.MINEObjectiveType, n_epochs: int) -> None:
 
-        x = rng.uniform(-1, 1, size=(n_samples, 1))
+        x = rng.uniform(-1, 1, size=(n_samples, 1)).astype(np.float32)
         y = transforms[0](x)
 
-        data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.5, batch_size=16)
+        data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=16)
 
         # construct the MINE estimator
         S = mine.StatisticsNetwork(

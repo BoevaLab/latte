@@ -13,25 +13,24 @@ from scipy import optimize
 
 from sklearn import feature_selection
 
-from latte.manifolds import utils as mutils
 
-
-def subspace_fit(A: np.ndarray, A_hat: np.ndarray) -> pd.DataFrame:
+def subspace_fit(Q: np.ndarray, Q_hat: np.ndarray) -> pd.DataFrame:
     """
-    Evaluates the goodness of fit of the found subspace spanned by the d-frame `A_hat` compared to the ground-truth
-    subspace spanned by the d-frame `A`.
+    Evaluates the goodness of fit of the found subspace spanned by the estimate of the matrix `A_hat`
+    compared to the ground-truth one.
     Args:
-        A: The true d-frame
-        A_hat: The estimated d-frame
+        Q: The ground-truth projection matrix
+        Q_hat: The orthogonal basis of the estimated subspace
 
     Returns:
         A pandas dataframe containing two evaluation metrics:
-            - the norm of the difference between the projection matrices *in the original space* corresponding to the
-              d-frames
-            - the same norm normalised by the norm of the projection matrix of the true d-frame
+            - the norm of the difference between the projection matrices *in the original space*
+            - the same norm normalised by the norm of the ground-truth mixing matrix
     """
-    subspace_distance = np.linalg.norm(A @ A.T - A_hat @ A_hat.T)
-    normalised_subspace_distance = np.linalg.norm(A @ A.T - A_hat @ A_hat.T) / np.linalg.norm(A @ A.T)
+
+    # We look at the distance between the subspace and *its* projection onto the found subspace defined by `Q_hat`
+    subspace_distance = np.linalg.norm(Q @ Q.T - Q_hat @ Q_hat.T @ Q @ Q.T)
+    normalised_subspace_distance = np.linalg.norm(Q @ Q.T - Q_hat @ Q_hat.T @ Q @ Q.T) / np.linalg.norm(Q @ Q.T)
     return pd.DataFrame(
         {
             "Value": {
@@ -65,31 +64,6 @@ def mixing_matrix_fit(A: np.ndarray, A_hat: np.ndarray) -> pd.DataFrame:
             }
         }
     )
-
-
-# TODO (Anej): This is a work-in-progress implementation
-def alignment_to_axes(A_hat: np.ndarray) -> pd.DataFrame:
-    """
-    Evaluates the degree to which a given projection matrix (its columns) is
-    aligned to the canonical basis of the latent space.
-    This can be used to evaluate how well the individual axes of the original latent space
-    capture factors on their own (and not as a component of a linear combination of the others);
-    in effect, this measures how well the factors are aligned with the original axes.
-
-    Args:
-        A_hat: The estimated projection matrix onto the linear subspace capturing the most information
-        about the factors of variation.
-
-    Returns:
-        A dataframe containing the results of the evaluation.
-    """
-    alignments = {"Alignment": dict()}
-    for new_axis in range(A_hat.shape[1]):
-        # If some value in a column of the transformation matrix is close to 1 (in absolute value),
-        # it means that the new basis is well aligned to the original axis whose coefficient is close to 1
-        alignments["Alignment"][f"Axis {new_axis}"] = 1 - np.abs(A_hat[:, new_axis])
-
-    return pd.DataFrame(alignments)
 
 
 def axis_factor_mutual_information(Z: torch.Tensor, Y: torch.Tensor, factor_names: List[str]) -> pd.DataFrame:
@@ -131,13 +105,16 @@ def distance_to_permutation_matrix(R: torch.Tensor) -> float:
     Returns:
         float: The Frobenius norm to the closest signed permutation matrix.
     """
-    assert mutils.is_orthonormal(R, atol=5e-2)
+    # assert mutils.is_orthonormal(R, atol=5e-2)
 
     # The cost matrix for the Hungarian algorithm
     # In the general case, the first term would include the *squared L2 row norms*, however, in the orthogonal case,
     # they are zero
     # See the link above to see what the elements of this matrix corresponds to
-    C = 1 - R**2 + (torch.abs(R) - 1) ** 2
+    # C = 1 - R**2 + (torch.abs(R) - 1) ** 2
+
+    # The general case
+    C = torch.linalg.norm(R, dim=1).reshape(-1, 1) ** 2 - R**2 + (R.abs() - 1) ** 2
 
     M = optimize.linear_sum_assignment(C)  # M includes the rows and columns of where ones should go
 

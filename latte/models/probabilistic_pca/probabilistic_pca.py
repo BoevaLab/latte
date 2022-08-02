@@ -20,23 +20,23 @@ class ProbabilisticPCADataset:
         X: A `N x n` matrix of the observables
         Z: The `N x n` matrix of the generative latent factors
         A: The `n x d` mixing/loading matrix
-        A_pinv: The `d x n` matrix; the pseudoinverse of `A`
         mu: The shift added to the transformed generative factors (mean of the observables)
         sigma: The noise standard deviation of the observation model
-        Q, R: `n x d` and `d x d` matrices. The QR decomposition of the loading matrix for easier projection to the
-               span of A.
-        factors_of_interest: The indices of the factors we are interested in / have measurements of.
+        n: The dimensionality of the observational space
+        d: The true dimensionality of the latent space
+        d_measured: The number of "measured factors"
+        measured_factors: The indices of the factors we are interested in / have measurements of.
     """
 
     X: np.ndarray
     Z: np.ndarray
     A: np.ndarray
-    A_pinv: np.ndarray
     mu: np.ndarray
     sigma: float
-    Q: np.ndarray
-    R: np.ndarray
-    factors_of_interest: np.ndarray
+    n: int
+    d: int
+    d_measured: int
+    measured_factors: np.ndarray
 
 
 def generate(
@@ -70,27 +70,24 @@ def generate(
     Z = rng.normal(scale=spread, size=(N, d))  # The generative factors
 
     A = rng.normal(size=(n, d))  # The mixing/loading matrix; it can be any `d x d` matrix
-    A_pinv = np.linalg.pinv(A)
-    Q, R = np.linalg.qr(A)  # Decompose the generated loading matrix to get the actual column-orthonormal matrix Q
     mu = rng.normal(size=(n,))
     epsilon = rng.normal(scale=sigma, size=(N, n))
 
     X = Z @ A.T + mu + epsilon  # The observables
 
     # Only return the values of the factors we are interested in, not all used in the generation
-    factors_of_interest = rng.choice(d, size=d_measured, replace=False)
-    Z = Z[:, factors_of_interest]
+    measured_factors = np.sort(rng.choice(d, size=d_measured, replace=False))
 
     return ProbabilisticPCADataset(
         X=X.astype(np.float32),
         Z=Z.astype(np.float32),
         A=A.astype(np.float32),
-        A_pinv=A_pinv.astype(np.float32),
         mu=mu.astype(np.float32),
         sigma=sigma,
-        Q=Q.astype(np.float32),
-        R=R.astype(np.float32),
-        factors_of_interest=factors_of_interest,
+        n=n,
+        d=d,
+        d_measured=d_measured,
+        measured_factors=measured_factors,
     )
 
 

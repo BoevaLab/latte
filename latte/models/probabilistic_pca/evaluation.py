@@ -33,6 +33,36 @@ class OrientationMetrics:
     SIGMA_SQUARED_HAT = "Observational noise variance"
 
 
+def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, Q_hat: np.ndarray) -> pd.DataFrame:
+    """
+    Evaluates the goodness of fit of the found subspace containing the *measured factors* spanned by the estimate
+    of the mixing matrix `A_hat` compared to the ground-truth one.
+    Args:
+        dataset: The generated pPCA dataset.
+        Q_hat: The orthogonal basis of the estimated subspace
+
+    Returns:
+        A pandas dataframe containing two evaluation metrics:
+            - the norm of the difference between the projection matrices *in the original space*
+            - the same norm normalised by the norm of the ground-truth mixing matrix
+    """
+    assert dataset.A.shape[1] >= len(dataset.measured_factors)
+
+    # We take out the columns which correspond to the factors we assume to have measured
+    A = dataset.A[:, dataset.measured_factors]
+
+    # We decompose the induced true covariance matrix to get the orthogonal basis of the principal subspace
+    Q, _ = np.linalg.qr(A @ A.T + dataset.sigma**2 * np.eye(dataset.n))
+    # Take the first `d_measured` components to identify the true subspace of the measured factors
+    # (it only captures the measured ones since we copied them out above, and it captures them entirely, since we
+    #  take all `d_measured` components)
+    Q = Q[:, : dataset.d_measured]
+
+    # We look at the distance between the subspace of the `d_measured` factors and *its* projection onto the found
+    # subspace defined by `Q_hat`
+    return evaluation.subspace_fit(Q, Q_hat)
+
+
 def evaluate_log_likelihood(
     X: np.ndarray,
     A_hat: np.ndarray,

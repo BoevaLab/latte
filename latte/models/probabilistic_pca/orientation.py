@@ -13,8 +13,8 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from latte.modules.data.datamodules import GenericDataModule
-from latte.models.probabilistic_pca.orientator.orientator import Orientator
 from latte.manifolds import utils as mutils
+from latte.models.probabilistic_pca.orientator import Orientator
 from latte.models.probabilistic_pca import probabilistic_pca
 
 
@@ -40,6 +40,8 @@ def _prepare_data(
     A_hat: np.ndarray,
     mu_hat: np.ndarray,
     sigma_hat: float,
+    p_train: float,
+    p_val: float,
     batch_size: int,
     num_workers: int,
 ) -> GenericDataModule:
@@ -51,6 +53,8 @@ def _prepare_data(
         A_hat (np.ndarray): The mixing matrix as estimated by pPCA (with columns corresponding to the principal axes).
         mu_hat (np.ndarray): The observable data mean as estimated by pPCA.
         sigma_hat (float): The observable data noise standard deviation as estimated by pPCA.
+        p_train (float): The proportion of the data to use for training.
+        p_val (float): The proportion of the data to use for validation.
         batch_size (int): Batch size to be used.
         num_workers (int): Number of workers for loading the data.
 
@@ -66,7 +70,9 @@ def _prepare_data(
     orientation_X = torch.from_numpy(Z_pca)
     orientation_Y = torch.from_numpy(Z)
 
-    return GenericDataModule(X=orientation_X, Y=orientation_Y, num_workers=num_workers, batch_size=batch_size)
+    return GenericDataModule(
+        X=orientation_X, Y=orientation_Y, num_workers=num_workers, batch_size=batch_size, p_train=p_train, p_val=p_val
+    )
 
 
 def orient(
@@ -75,6 +81,8 @@ def orient(
     A_hat: np.ndarray,
     mu_hat: np.ndarray,
     sigma_hat: float,
+    p_train: float,
+    p_val: float,
     batch_size: int,
     learning_rate: float,
     min_delta: float,
@@ -82,6 +90,7 @@ def orient(
     max_epochs: int,
     num_workers: int,
     loss: str = "mse",
+    manifold_optimisation: bool = True,
     verbose: bool = False,
     gpus: int = 1,
 ) -> OrientationResult:
@@ -102,6 +111,8 @@ def orient(
         A_hat (np.ndarray): The mixing matrix as estimated by pPCA (with columns corresponding to the principal axes).
         mu_hat (np.ndarray): The observable data mean as estimated by pPCA.
         sigma_hat (float): The observable data noise standard deviation as estimated by pPCA.
+        p_train (float): The proportion of the data to use for training.
+        p_val (float): The proportion of the data to use for validation.
         batch_size (int): Batch size to be used.
         learning_rate (float): Learning rate for optimisation over the Stiefel manifold.
         min_delta (float): `min_delta` for the learning rate scheduler.
@@ -111,6 +122,9 @@ def orient(
         verbose (bool): Verbosity of the `pytorch lightning` Trainer
         loss (str, optional): The loss to use to quantify the fit between the inferred latent factors
                               and the true values. Defaults to "mse".
+        manifold_optimisation: Whether to orient the estimate constrained to the Stiefel manifold or not.
+                               This should be left True for almost all use cases, it is mostly here to enable
+                               investigating the effect of the constrained optimisation versus the unconstrained one.
         gpus (int, optional_description_): Number of GPUs to use. Defaults to 1.
 
     Returns:
@@ -123,7 +137,7 @@ def orient(
     # We will be mapping from the latent space found by PCA
     # (which has at least as many factors as there are captured in Z) to the space of the observed factors in Z
     n_captured_directions, n_relevant_factors = A_hat.shape[1], Z.shape[1]
-    orientation_data = _prepare_data(X, Z, A_hat, mu_hat, sigma_hat, batch_size, num_workers)
+    orientation_data = _prepare_data(X, Z, A_hat, mu_hat, sigma_hat, p_train, p_val, batch_size, num_workers)
 
     # In case `n_captured_directions`` == `n_relevant_factors`, we are optimising over orthonormal matrices, which
     # form a disconnected manifold (those with determinant 1 and -1), so we have to train the model twice, with
@@ -140,6 +154,7 @@ def orient(
             loss=loss_fn,
             init_sign=sign,
             learning_rate=learning_rate,
+            manifold_optimisation=manifold_optimisation,
         )
 
         early_stopping_callback = EarlyStopping(
@@ -173,7 +188,7 @@ def orient(
         )
 
         # Assert that the found projection matrix is orthonormal
-        assert mutils.is_orthonormal(best_model.orientator.A.detach().cpu(), atol=1e-2)
+        assert not manifold_optimisation or mutils.is_orthonormal(best_model.orientator.A.detach().cpu(), atol=1e-2)
         # print(f"THE MATRIX ORTHOGONAL: {mutils.is_orthonormal(best_model.orientator.A.detach().cpu(), atol=1e-1)}.")
 
         # Extract the projection matrix of the best model

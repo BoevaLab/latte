@@ -28,6 +28,7 @@ class Orientator(pl.LightningModule):
         init_sign: Literal[-1, 1] = 1,
         lr_scheduler_patience: int = 8,
         lr_scheduler_min_delta: float = 1e-2,
+        manifold_optimisation: bool = True,
         verbose: bool = False,
     ):
         """
@@ -41,6 +42,9 @@ class Orientator(pl.LightningModule):
                        initialized as the identity with the sign of the first element flipped (-1).
             lr_scheduler_patience: The patience for the ReduceOnPlateu learning rate scheduler
             lr_scheduler_min_delta: The minimum improvement for the ReduceOnPlateu learning rate scheduler
+            manifold_optimisation: Whether to orient the estimate constrained to the Stiefel manifold or not.
+                                   This should be left True for almost all use cases, it is mostly here to enable
+                                   investigating the effect of the constrained optimisation versus unconstrained.
             verbose: Controls the verbosity of callbacks and learning rate schedulers
         """
         super().__init__()
@@ -51,7 +55,7 @@ class Orientator(pl.LightningModule):
         # This enables optimisation over the disconnected Stiefel manifold
         if init is not None:
             init[0, 0] = init_sign
-        self.orientator = ManifoldProjectionLayer(n, d, init=init)
+        self.orientator = ManifoldProjectionLayer(n, d, init=init, stiefel_manifold=manifold_optimisation)
         self.loss = loss
         self.learning_rate = learning_rate
         self.lr_scheduler_patience = lr_scheduler_patience
