@@ -4,7 +4,7 @@
 *.hdf5
 *.npy
 *.npz
-data/
+dataset/raw
 outputs/
 multirun/
 
@@ -15,8 +15,10 @@ multirun/
 *.png
 *.pdf
 
-# Jupyter notebooks
+# Jupyter Notebook
+.ipynb_checkpoints
 *.ipynb
+notebooks/
 
 # PyCharm directory
 .idea/
@@ -101,9 +103,6 @@ docs/_build/
 .pybuilder/
 target/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
 # IPython
 profile_default/
 ipython_config.py
@@ -169,6 +168,13 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# VSCode
+.vscode
+.VSCodeCounter
+
+# VSCode history
+.history/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
