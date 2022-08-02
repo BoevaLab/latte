@@ -1,4 +1,4 @@
-""" Script for downloading and loading the Cars3D dataset.
+""" Script for downloading and loading the `Cars3D` dataset.
     Some parts based on the morpho-MNIST package (https://github.com/dccastro/Morpho-MNIST). """
 
 import dataclasses
@@ -147,7 +147,7 @@ def prepare_files(
     save_to_file(version, "test", filepath, test_images, test_labels, test_latents, test_perturbations)
 
 
-def load_morphomnist(
+def load_morphoMNIST(
     version: Literal["plain", "local", "global"] = "plain",
     filepath: Union[str, pathlib.Path] = DEFAULT_TARGET,
     download_ok: bool = True,
@@ -185,11 +185,11 @@ def load_morphomnist(
 
     # Now we can open the dataset and reshape it
     return MorphoMNISTDataset(
-        train_imgs=train_data["images"][:],
+        train_imgs=np.expand_dims(train_data["images"][:], axis=1),  # Expand the dimensions to have a channel dimension
         train_labels=train_data["labels"][:],
         train_latents_values=train_data["latents"][:],
         train_perturbations=train_data["perturbations"][:] if version in ["local", "global"] else None,
-        test_imgs=test_data["images"][:],
+        test_imgs=np.expand_dims(test_data["images"][:], axis=1),
         test_labels=test_data["labels"][:],
         test_latents_values=test_data["latents"][:],
         test_perturbations=test_data["perturbations"][:] if version in ["local", "global"] else None,
@@ -198,5 +198,5 @@ def load_morphomnist(
 
 if __name__ == "__main__":
     for dataset_version in ["plain", "local", "global"]:
-        load_morphomnist(version=dataset_version)
+        load_morphoMNIST(version=dataset_version)
     print("DONE")

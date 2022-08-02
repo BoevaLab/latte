@@ -1,3 +1,7 @@
+"""
+Code for downloading and loading the `Shapes3D` dataset (https://github.com/deepmind/3d-shapes).
+"""
+
 import dataclasses
 import pathlib
 
@@ -14,8 +18,34 @@ SHAPES3D_URL = "https://storage.googleapis.com/3d-shapes/3dshapes.h5"
 MD5_CHECKSUM = "099a2078d58cec4daad0702c55d06868"
 
 
+attribute_names = [
+    "floor_hue",
+    "wall_hue",
+    "object_hue",
+    "scale",
+    "shape",
+    "orientation",
+]
+
+attribute2idx = {name: jj for jj, name in enumerate(attribute_names)}
+
+
 @dataclasses.dataclass
 class Shapes3DDataset:
+    """
+    Members:
+        imgs: (480000 x 64 x 64 x 3, uint8) RGB images.
+              Note that the image dimensions are not in the `pytorch` format so the images have to be transposed before
+              being passed to any image-processing pipeline in `pytorch`.
+        latents_values: (480000 x 6, float64) Values of the latent factors.
+            floor hue: 10 values linearly spaced in [0, 1]
+            wall hue: 10 values linearly spaced in [0, 1]
+            object hue: 10 values linearly spaced in [0, 1]
+            scale: 8 values linearly spaced in [0, 1]
+            shape: 4 values in [0, 1, 2, 3]
+            orientation: 15 values linearly spaced in [-30, 30]
+    """
+
     imgs: np.ndarray
     latents_values: np.ndarray
 

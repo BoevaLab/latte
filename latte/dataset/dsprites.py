@@ -1,8 +1,11 @@
+""" Script for downloading and loading the `dSprites` dataset (https://github.com/deepmind/dsprites-dataset). """
+
 import dataclasses
 import pathlib
 from enum import IntEnum
-from typing import Tuple, Union, List, Dict, Optional
+from typing import Tuple, Union, List, Dict, Optional, Sequence
 
+import torch
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA, FactorAnalysis
@@ -51,6 +54,10 @@ fixed_values = {
 
 @dataclasses.dataclass
 class DSpritesMetadata:
+    """
+    Provided `dSprites` metadata.
+    """
+
     date: str
     description: str
     version: int
@@ -59,6 +66,10 @@ class DSpritesMetadata:
 
 @dataclasses.dataclass
 class DSpritesDataset:
+    """
+    The original `dSprites` dataset as downloaded from the source.
+    """
+
     metadata: DSpritesMetadata
     imgs: np.ndarray
     latents_values: np.ndarray
@@ -67,8 +78,14 @@ class DSpritesDataset:
 
 @dataclasses.dataclass
 class PreprocessedDSpritesDataset:
-    X: np.ndarray
-    y: np.ndarray
+    """
+    Preprocessed `dSprites` dataset, where `X` and `y` can either be the principal components of the images or the
+    raw images themselves.
+    See `load_dsprites_preprocessed` for more details.
+    """
+
+    X: torch.Tensor
+    y: torch.Tensor
     factor2idx: Dict[DSpritesFactor, int]
     pca_ratios: Optional[np.ndarray]
 
@@ -219,8 +236,8 @@ def load_dsprites_preprocessed(
     return_raw: bool = False,
     method: Optional[str] = "PCA",
     n_components: Optional[int] = 20,
-    factors: Optional[List[DSpritesFactor]] = None,
-    ignored_factors: Optional[List[DSpritesFactor]] = None,
+    factors: Optional[Sequence[DSpritesFactor]] = None,
+    ignored_factors: Optional[Sequence[DSpritesFactor]] = None,
     keep_all_dimensions: bool = False,
 ) -> PreprocessedDSpritesDataset:
     """Load the dSprites dataset and optionally preprocess it using PCA or FactorAnalysis.
@@ -271,7 +288,9 @@ def load_dsprites_preprocessed(
         # Expand dimensions to be of the correct form for pytorch processing...
         X = np.expand_dims(X, axis=1)
 
-    return PreprocessedDSpritesDataset(X, y, factor2idx, pca_ratios=pca_ratios)
+    return PreprocessedDSpritesDataset(
+        torch.tensor(X.astype(np.float32)), torch.tensor(y.astype(np.float32)), factor2idx, pca_ratios=pca_ratios
+    )
 
 
 if __name__ == "__main__":
