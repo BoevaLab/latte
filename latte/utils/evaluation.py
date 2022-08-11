@@ -16,7 +16,7 @@ from sklearn import feature_selection
 
 def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
     """
-    Evaluates the goodness of fit of the found subspace spanned by the estimate of the matrix `A_hat`
+    Evaluates the goodness of fit of the found subspace spanned by the estimate of the matrix `U_hat`
     compared to the ground-truth one.
     Args:
         U: The ground-truth projection matrix
@@ -28,7 +28,7 @@ def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
             - the same norm normalised by the norm of the ground-truth mixing matrix
     """
 
-    # We look at the distance between the subspace and *its* projection onto the found subspace defined by `Q_hat`
+    # We look at the distance between the subspace and *its* projection onto the found subspace defined by `U_hat`
     subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T)
     normalised_subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T) / np.linalg.norm(U @ U.T)
     return pd.DataFrame(
