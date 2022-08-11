@@ -38,7 +38,7 @@ quantity_x_labels = {
     "d": r"$d$",
     "d_hat": r"$\hat{d}$",
     "d_measured": r"$d_m$",
-    "noise_std": r"$\sigma$",
+    "noise_std": r"$\sigma^2$",
     "M": r"$M$",
     "manifold_optimisation": "Manifold optimisation",
 }
@@ -77,6 +77,7 @@ metrics_to_plot = [
     (ppca_evaluation.OrientationMetrics.RELATIVE_ORIENTED_OBSERVATION_ERROR,),
     # (ppca_evaluation.OrientationMetrics.SIGMA_HAT,),
     (ppca_evaluation.OrientationMetrics.SIGMA_SQUARED_HAT,),
+    (ppca_evaluation.OrientationMetrics.DISTANCE_MU,),
     (
         "Difference between subspaces",
     ),  # Manually added entries about the PCA subspace error since they are not in the class OrientationMetrics
@@ -108,13 +109,13 @@ class Experiment1Config:
         seed: The seed for the random generators
     """
 
-    N: List[int] = field(default_factory=lambda: [2048])
+    N: List[int] = field(default_factory=lambda: [1024])
     n: List[int] = field(default_factory=lambda: [64])
     d: List[int] = field(default_factory=lambda: [8])
     d_hat: List[int] = field(default_factory=lambda: [8])
     d_measured: List[int] = field(default_factory=lambda: [8])
     noise_std: List[float] = field(default_factory=lambda: [0.1 ** (1 / 2)])
-    M: List[int] = field(default_factory=lambda: [512])
+    M: List[int] = field(default_factory=lambda: [1024])
     manifold_optimisation: List[bool] = field(default_factory=lambda: [True])
     N_eval: int = 1024
     n_runs: int = 20
@@ -231,14 +232,14 @@ def fit(
         gpus=gpus,
     )
 
-    print(f"Test loss of the orientation: {orientation_result.loss}.")
+    # print(f"Test loss of the orientation: {orientation_result.loss}.")
 
     R_hat = orientation_result.R
     A_hat_oriented = A_hat @ R_hat
     stopped_epoch = orientation_result.stopped_epoch
 
     # Evaluate the orientation results
-    orientation_evaluation_results = ppca_evaluation.evaluate_orientation(
+    orientation_evaluation_results = ppca_evaluation.evaluate_full_result(
         X=X_eval,
         Z=Z_eval[:, dataset.measured_factors],
         A=dataset.A[:, dataset.measured_factors],
@@ -252,9 +253,9 @@ def fit(
         stopped_epoch=stopped_epoch,
     )
 
-    print("--- Results of the fit. ---")
-    print(orientation_evaluation_results)
-    print()
+    # print("--- Results of the fit. ---")
+    # print(orientation_evaluation_results)
+    # print()
 
     # To confirm the rotational invariance of the log-likelihood, we calculate it for the rotated matrices
     # and some random ones
@@ -351,6 +352,7 @@ def main(cfg: Experiment1Config):
     results = list()
     for p in tqdm(parameters):
         print(f"Running pPCA with configuration {p}.")
+        parameter_results = []
         for _ in trange(cfg.n_runs, leave=False):
             result = fit(
                 N=p["N"],
@@ -378,35 +380,61 @@ def main(cfg: Experiment1Config):
             )
 
             # Save the value which was used in this particular run for plotting trends
-            result["x"] = float(p[quantity_name])
+            result["x"] = float(p[quantity_name]) if quantity_name != "noise_std" else p[quantity_name] ** 2
 
-            results.append(result)
+            parameter_results.append(result)
+
+        print("--- Results of the evaluation ---")
+        print(pd.concat(parameter_results, ignore_index=True).groupby("Metric").median().reset_index())
+
+        results.extend(parameter_results)
 
     # Concat results from all runs
     results_df = pd.concat(results, ignore_index=True)
     results_df.to_csv(filepath / "full_results.csv")
 
-    if all([len(a) == 1 for a in arrays]):
+    summarised_df = results_df.groupby(["x", "Metric"]).mean()
+    summarised_df["std"] = results_df.groupby(["x", "Metric"]).std()["Value"]
+    summarised_df.to_csv(filepath / "mean_results.csv")
+
+    if quantity_name == "manifold_optimisation" or all([len(a) == 1 for a in arrays]):
+
         # Plot standard deviations
-        visualisation.metrics_boxplot(
-            results_df[results_df["Metric"].isin(["Number of epochs required to orient the model"])],
-            label_rotation=0,
-            file_name=filepath / "num_epochs_histogram.png",
-        )
-        visualisation.metrics_boxplot(
-            results_df[
-                ~results_df["Metric"].isin(
-                    [
-                        "Number of epochs required to orient the model",
-                        "Observation error of the original estimate",
-                        "Matrix distance of the original estimate",
-                        "Matrix distance of the oriented estimate",
-                    ]
-                )
-            ],
-            label_rotation=80,
-            file_name=filepath / "metrics_histogram.png",
-        )
+        for metric in results_df["Metric"]:
+            visualisation.metrics_boxplot(
+                results_df[results_df["Metric"] == metric],
+                x="x" if quantity_name == "manifold_optimisation" else "Metric",
+                quantity_name="Manifold optimisation" if quantity_name == "manifold_optimisation" else None,
+                label_rotation=0,
+                file_name=filepath / f"{metric}_histogram.png",
+            )
+        plot_df = results_df[
+            ~results_df["Metric"].isin(
+                [
+                    "Number of epochs required to orient the model",
+                    "Observation error of the original estimate",
+                    "Matrix distance of the original estimate",
+                    "Matrix distance of the oriented estimate",
+                ]
+            )
+        ]
+        if all([len(a) == 1 for a in arrays]):
+            visualisation.metrics_boxplot(
+                plot_df,
+                label_rotation=80,
+                file_name=filepath / "metrics_histogram.png",
+            )
+        else:
+            visualisation.metrics_boxplot(
+                plot_df[plot_df["x"] == 0],
+                label_rotation=80,
+                file_name=filepath / "metrics_histogram_moFalse.png",
+            )
+            visualisation.metrics_boxplot(
+                plot_df[plot_df["x"] == 1],
+                label_rotation=80,
+                file_name=filepath / "metrics_histogram_moTrue.png",
+            )
     else:
         # Plot trends
         for metrics in metrics_to_plot:

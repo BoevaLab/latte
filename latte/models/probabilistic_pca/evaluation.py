@@ -17,6 +17,7 @@ class OrientationMetrics:
     DISTANCE_TO_PERMUTATION_MATRIX = "Distance to a permutation matrix"
     MEAN_DISTANCE_TO_PERMUTATION_MATRIX = "Mean distance to a permutation matrix"
     ORIGINAL_DISTANCE_TO_A = "Matrix distance of the original estimate"
+    DISTANCE_MU = "Distance of the estimated mean"
     ORIGINAL_DISTANCE_TO_A_NORMALISED = "Relative matrix distance of the original estimate"
     ORIENTED_DISTANCE_TO_A = "Matrix distance of the oriented estimate"
     ORIENTED_DISTANCE_TO_A_NORMALISED = "Relative matrix distance of the oriented estimate"
@@ -59,7 +60,7 @@ def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, U_hat: np.n
     U = U[:, : dataset.d_measured]
 
     # We look at the distance between the subspace of the `d_measured` factors and *its* projection onto the found
-    # subspace defined by `Q_hat`
+    # subspace defined by `U_hat`
     return evaluation.subspace_fit(U, U_hat)
 
 
@@ -137,7 +138,7 @@ def evaluate_log_likelihood(
     return df
 
 
-def evaluate_orientation(
+def evaluate_full_result(
     X: np.ndarray,
     Z: np.ndarray,
     A: np.ndarray,
@@ -268,6 +269,9 @@ def evaluate_orientation(
             round((o_error_oriented - o_error_true) / o_error_true, 4),
         )
     )
+
+    # Record the error of the mean estimate
+    evaluation_results.append((OrientationMetrics.DISTANCE_MU, np.linalg.norm(mu - mu_hat)))
 
     # Record the estimate of the standard deviation
     evaluation_results.append((OrientationMetrics.SIGMA_HAT, sigma_hat))

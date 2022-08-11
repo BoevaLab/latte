@@ -765,6 +765,8 @@ def probabilistic_pca_data(
 
 def metrics_boxplot(
     data: pd.DataFrame,
+    x: str = "Metric",
+    quantity_name: Optional[str] = None,
     label_rotation: int = 30,
     file_name: Optional[Union[str, pathlib.Path]] = None,
 ) -> None:
@@ -775,6 +777,9 @@ def metrics_boxplot(
 
     Args:
         data (pd.DataFrame): The data frame containing the logged metrics.
+        x: The x-axis value of the boxplot.
+        quantity_name (str): The name of the quantity of interest (if one was varied and the values of metrics were
+                             measured at these different points).
         label_rotation: The rotation of the metric name labels when plotting.
         file_name (Optional[Union[str, pathlib.Path]], optional): Optional name of the file to save the plot to.
                                                                   Defaults to None.
@@ -782,8 +787,12 @@ def metrics_boxplot(
     n_metrics = len(set(data["Metric"]))
     fig, ax = plt.subplots(figsize=(max(1.0, 1.0 * n_metrics), 2), dpi=200)
 
-    b = sns.boxplot(data=data, x="Metric", y="Value", ax=ax)
-    ax.set(xlabel="Metric")
+    b = sns.boxplot(data=data, x=x, y="Value", ax=ax)
+    ax.set(
+        title="Metrics" if n_metrics > 1 else list(data["Metric"])[0],
+        xlabel="Metric" if quantity_name is None else quantity_name,
+        ylabel="Value",
+    )
     ax.set_xticklabels(ax.get_xticklabels(), rotation=label_rotation)
     b.tick_params(labelsize=6)
 
