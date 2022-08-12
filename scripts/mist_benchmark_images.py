@@ -222,7 +222,7 @@ def _process_subspace(
     X: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
     A_hat: geoopt.ManifoldTensor,
-    trained_model: BetaVAE,
+    model: BetaVAE,
     factors: List[str],
     subspace_size: int,
     erased: bool,
@@ -240,7 +240,7 @@ def _process_subspace(
         X: Dictionary of the observations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
         A_hat: The projection matrix.
-        trained_model: The original trained model
+        model: The original trained model
         factors: The factors of interest
         subspace_size: The current size of the subspace considered.
                        This is needed since in the case when looking at the "erasing" projection matrix, the matrix
@@ -264,22 +264,16 @@ def _process_subspace(
     # Construct the VAE model which projects onto the subspace defined by `A_hat`
     # It has the same config as the original model, so we copy it, we just change the `latent_dim`
     projection_model = BetaVAE(
-        model_config=replace(trained_model.model_config),
-        encoder=ProjectionBaseEncoder(trained_model.encoder, A_hat),
-        decoder=ProjectionBaseDecoder(trained_model.decoder, A_hat),
+        model_config=replace(model.model_config),
+        encoder=ProjectionBaseEncoder(model.encoder, A_hat),
+        decoder=ProjectionBaseDecoder(model.decoder, A_hat),
     )
     projection_model.model_config.latent_dim = projection_subspace_size
 
     # Construct the representations by the projection VAE
-    Z_train_projected = vaeutils.get_latent_representations(
-        projection_model, X["train"], projection_model.model_config.latent_dim
-    )
-    Z_val_projected = vaeutils.get_latent_representations(
-        projection_model, X["val"], projection_model.model_config.latent_dim
-    )
-    # Z_test_projected = vaeutils.get_latent_representations(
-    #     projection_model, X["test"], projection_model.model_config.latent_dim
-    # )
+    Z_train_projected = vaeutils.get_latent_representations(projection_model, X["train"])
+    Z_val_projected = vaeutils.get_latent_representations(projection_model, X["val"])
+    # Z_test_projected = vaeutils.get_latent_representations(projection_model, X["test"])
 
     # Plot the latent traversals in the subspace
     visualisation.latent_traversals(
@@ -295,9 +289,8 @@ def _process_subspace(
         # Intervene on the values of the subspace on a sample of the images to change their features
         for ii in range(cfg.plot_nrows):
             visualisation.latent_traversals(
-                vae_model=trained_model,
+                vae_model=model,
                 Z=Z_train_projected,
-                intervention=True,
                 A_hat=A_hat,
                 starting_x=X["val"][rng.choice(len(X["val"]))].to(device),
                 n_values=cfg.plot_ncols,
@@ -306,8 +299,6 @@ def _process_subspace(
             )
 
     # TODO (Anej): possibly add heatmaps or trends of the factors of interest against some dimensions
-
-    # TODO (Anej): The erased subspace size is not correct still
 
     if not erased:
         # Only calculate this for the projected subspace, since the number of dimensions it too large otherwise so
@@ -333,7 +324,7 @@ def _process_subspace(
     # Reconstructions together with their original non-projected reconstructions
     visualisation.vae_reconstructions(
         dataset=X["val"],
-        vae_model=trained_model,
+        vae_model=model,
         latent_transformation=lambda z: z @ A_hat @ A_hat.T,
         nrows=cfg.plot_nrows,
         ncols=cfg.plot_ncols,
@@ -393,7 +384,7 @@ def _process_factors_of_interest(
     X: Dict[str, torch.Tensor],
     Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
-    trained_model: BetaVAE,
+    model: BetaVAE,
     factors_of_interest: List[str],
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
@@ -409,7 +400,7 @@ def _process_factors_of_interest(
         X: Dictionary of the observations split into "train", "val", and "test" splits
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
-        trained_model: The loaded trained VAE model to be applied to the data in `X`
+        model: The loaded trained VAE model to be applied to the data in `X`
         factors_of_interest: The set of factors of interest to consider.
         experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
@@ -440,7 +431,7 @@ def _process_factors_of_interest(
     full_space_result = _train_mist(
         Z=Z["train"],
         Y=Y["train"][:, factors_of_interest_idx],
-        subspace_size=trained_model.model_config.latent_dim,
+        subspace_size=model.model_config.latent_dim,
         fit_subspace=False,
         cfg=cfg,
     )
@@ -487,7 +478,7 @@ def _process_factors_of_interest(
                 X=X,
                 Y=Y,
                 A_hat=subspace_result.A.to(device),
-                trained_model=trained_model,
+                model=model,
                 factors=factors_of_interest,
                 subspace_size=subspace_size,
                 erased=False,
@@ -504,10 +495,8 @@ def _process_factors_of_interest(
             _process_subspace(
                 X=X,
                 Y=Y,
-                A_hat=(torch.eye(trained_model.model_config.latent_dim) - subspace_result.A @ subspace_result.A.T).to(
-                    device
-                ),
-                trained_model=trained_model,
+                A_hat=(torch.eye(model.model_config.latent_dim) - subspace_result.A @ subspace_result.A.T).to(device),
+                model=model,
                 factors=factors_of_interest,
                 # subspace_size=trained_model.model_config.latent_dim,
                 subspace_size=subspace_size,
@@ -555,9 +544,9 @@ def main(cfg: MISTConfig):
     )
 
     # Get the latent representations given by the original VAE
-    Z_train = vaeutils.get_latent_representations(trained_model, X_train, trained_model.model_config.latent_dim)
-    Z_val = vaeutils.get_latent_representations(trained_model, X_val, trained_model.model_config.latent_dim)
-    Z_test = vaeutils.get_latent_representations(trained_model, X_test, trained_model.model_config.latent_dim)
+    Z_train = vaeutils.get_latent_representations(trained_model, X_train)
+    Z_val = vaeutils.get_latent_representations(trained_model, X_val)
+    Z_test = vaeutils.get_latent_representations(trained_model, X_test)
 
     # Fit a GMM model on the produced latent space
     print("Fitting the GMM on the original latent space.")

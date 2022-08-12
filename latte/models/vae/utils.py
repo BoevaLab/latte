@@ -11,7 +11,7 @@ from pythae.models.vae import vae_model
 
 
 def get_latent_representations(
-    model: vae_model.VAE, X: torch.Tensor, latent_size: int, batch_size: int = 2048, device: str = "cuda"
+    model: vae_model.VAE, X: torch.Tensor, batch_size: int = 2048, device: str = "cuda"
 ) -> torch.Tensor:
     """
     A utility function to get the latent representations given by the encoder model of the VAE to the observations
@@ -19,7 +19,6 @@ def get_latent_representations(
     Args:
         model: The VAE with to use for encoding.
         X: The observations to produce the latent representations for.
-        latent_size: The dimensionality of the latent space.
         batch_size: The batch size to use.
         device: The device to load the data to.
 
@@ -28,7 +27,7 @@ def get_latent_representations(
     """
     model.eval()
     with torch.no_grad():
-        Z = torch.zeros(size=(len(X), latent_size))
+        Z = torch.zeros(size=(len(X), model.model_config.latent_dim))
         for ix in trange(0, len(X), batch_size):
             x = X[ix : ix + batch_size].to(device)
             y = model.encoder(x)

@@ -171,7 +171,6 @@ def _get_axis_values(
 def latent_traversals(
     vae_model: nn.Module,
     starting_x: torch.Tensor,
-    intervention: bool = False,
     A_hat: Optional[geoopt.ManifoldTensor] = None,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     n_axes: int = 1,
@@ -207,8 +206,6 @@ def latent_traversals(
         cmap: The color map for the matplotlib plotting function.
         file_name: Optional file name to save the produced figure.
     """
-
-    assert not intervention or A_hat is not None
 
     # TODO (Anej): This is not really correct...
     kl_divergences = np.asarray(
@@ -273,7 +270,7 @@ def latent_traversals(
             for j in range(n_values):
 
                 z = starting_z.clone()
-                if intervention and A_hat is not None:
+                if A_hat is not None:
                     # The model has to be the original so that we can actually work with these representations
 
                     if not shift:
@@ -314,6 +311,76 @@ def latent_traversals(
 
     plt.suptitle("Latent traversals", size=10)
     fig.tight_layout()
+
+    if file_name is not None:
+        fig.savefig(file_name)
+        plt.close()
+    else:
+        plt.show()
+
+
+def homotopies(
+    xs: List[torch.Tensor],
+    vae_model: VAE,
+    A: Optional[geoopt.ManifoldTensor] = None,
+    n_cols: int = 10,
+    x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
+    cmap: Optional[str] = "Greys",
+    file_name: Optional[str] = None,
+    device: str = "cuda",
+) -> None:
+
+    if A is None:
+        A = torch.eye(vae_model.model_config.latent_dim).to(device)
+
+    N = len(xs)
+    fig, axes = plt.subplots(
+        nrows=N * (N - 1), ncols=n_cols + 2, figsize=(0.75 * (n_cols + 2), 0.65 * N * (N - 1)), dpi=200
+    )
+
+    # To represent `x`, we just take the mean of the Gaussian distribution
+    with torch.no_grad():
+        starting_zs = [vae_model.encoder(x.unsqueeze(0)).embedding for x in xs]  # We extract `mu`
+
+    ts = np.linspace(0, 1, n_cols)
+    for jj in range(n_cols + 2):
+        axes[0, jj].text(
+            0.5,
+            1.1,
+            "Original" if jj in [0, n_cols + 1] else f"{ts[jj - 1]: .2f}",
+            horizontalalignment="center",
+            verticalalignment="bottom",
+            rotation="horizontal",
+            size=8,
+            transform=axes[0, jj].transAxes,
+        )
+
+    row = 0
+    for ii, jj in product(range(N), range(N)):
+        if ii == jj:
+            continue
+
+        axes[row, 0].imshow(xs[ii].detach().cpu().permute(1, 2, 0), cmap=cmap)
+        axes[row, 0].get_xaxis().set_ticks([])
+        axes[row, 0].get_yaxis().set_ticks([])
+
+        axes[row, n_cols + 1].imshow(xs[jj].detach().cpu().permute(1, 2, 0), cmap=cmap)
+        axes[row, n_cols + 1].get_xaxis().set_ticks([])
+        axes[row, n_cols + 1].get_yaxis().set_ticks([])
+
+        with torch.no_grad():
+            for t_ix, t in enumerate(ts):
+                z = starting_zs[ii]
+                d = ((1 - t) * z + t * starting_zs[jj]) @ A
+                z = z - z @ A @ A.T  # Erase the subspace from z
+                z = z + d @ A.T  # Add back just the convex combination
+                x_hat = x_hat_transformation(
+                    vae_model.decoder(z).reconstruction.detach().cpu()[0]
+                )  # First image from the batch
+                axes[row, t_ix + 1].imshow(x_hat.permute(1, 2, 0), cmap=cmap)
+                axes[row, t_ix + 1].get_xaxis().set_ticks([])
+                axes[row, t_ix + 1].get_yaxis().set_ticks([])
+        row += 1
 
     if file_name is not None:
         fig.savefig(file_name)
