@@ -179,7 +179,6 @@ def latent_traversals(
     axis_values: Optional[np.ndarray] = None,
     q: Tuple[float, float] = (0.01, 0.99),
     shift: bool = False,
-    sort_by: str = "var",
     cmap: Optional[str] = "Greys",
     device: str = "cuda",
     file_name: Optional[str] = None,
@@ -202,20 +201,12 @@ def latent_traversals(
         shift: If true, shift the axes by the quantile values (add them to the original value) instead of
                setting them to the raw quantile value.
         n_axes: Number of axes to traverse.
-        sort_by: The criterion by which to sort the axes - either "KL" or "var" (KL version not working yet).
         cmap: The color map for the matplotlib plotting function.
         file_name: Optional file name to save the produced figure.
     """
 
-    # TODO (Anej): This is not really correct...
-    kl_divergences = np.asarray(
-        [
-            -0.5 * (1 + torch.log(torch.var(Z[:, j])) - torch.mean(Z[:, j]) ** 2 - torch.var(Z[:, j]))
-            for j in range(Z.shape[-1])
-        ]
-    )
     variances = np.asarray([torch.var(Z[:, j]) for j in range(Z.shape[-1])])
-    axis_order = np.argsort(-kl_divergences if sort_by == "KL" else -variances)
+    axis_order = np.argsort(-variances)
 
     fig, axes = plt.subplots(
         nrows=n_axes, ncols=n_values + 1, figsize=(0.75 * (n_values + 1), 0.65 * (n_axes + 1)), dpi=200
@@ -251,9 +242,7 @@ def latent_traversals(
             ax.text(
                 -1.5,
                 0.5 * (bottom + top),
-                f"Axis {axis}\n KL = {kl_divergences[axis]: .2f}"
-                if sort_by == "KL"
-                else f"Axis {axis}\n {var_expr} = {variances[axis]: .2f}",
+                f"Axis {axis}\n {var_expr} = {variances[axis]: .2f}",
                 horizontalalignment="center",
                 verticalalignment="center",
                 rotation="horizontal",
@@ -873,6 +862,7 @@ def metrics_boxplot(
 def metric_trend(
     data: pd.DataFrame,
     quantity_name: str,
+    title: str = "",
     file_name: Optional[Union[str, pathlib.Path]] = None,
 ) -> None:
     """
@@ -885,6 +875,7 @@ def metric_trend(
          data (pd.DataFrame): The data frame containing the data as described above.
          quantity_name (str): The name of the quantity of interest (which was varied and the values of metrics were
                               measured at these different points).
+        title (str): The title of the figure
          file_name (Optional[Union[str, pathlib.Path]], optional): Optional name of the file to save the plot to.
                                                                    Defaults to None.
     """
@@ -892,10 +883,13 @@ def metric_trend(
 
     sns.lineplot(data=data, x="x", y="Value", hue="Metric", legend="full", ci="sd", ax=ax)
     ax.set(xlabel=quantity_name)
-    legend = ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
+    fig.suptitle(title, fontsize=11)
+    ax.get_legend().remove()
+    # legend = ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
 
     if file_name is not None:
-        fig.savefig(file_name, bbox_extra_artists=(legend,), bbox_inches="tight")
+        fig.savefig(file_name, bbox_inches="tight")
+        # fig.savefig(file_name, bbox_extra_artists=(legend,), bbox_inches="tight")
         plt.close()
     else:
         plt.show()

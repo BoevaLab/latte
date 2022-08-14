@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace, field
 
 import numpy as np
 import pandas as pd
+import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import geoopt
@@ -47,6 +48,14 @@ class MISTConfig:
                              subspace capturing the most information about them *together*.
                              Multiple such lists can be provided to explore subspaces capturing information about
                              different sets of factors.
+        alternative_factors: A list of lists.
+                             After the subspace containing the most information about a certain set of factors has been
+                             found, the script will check how much information there is in that subspace about all the
+                             factors specified in `alternative_factors`.
+                             It should be of the same length as `factors_of_interest`.
+                             It for each set of factors in `factors_of_interest`, it will check how much information
+                             there is the found space about each of the factors specified in the corresponding list in
+                             `alternative_factors`.
         subspace_sizes: A list of dimensionalities of the subspaces to consider.
                         For each set of factors of interest, a subspace of each size specified in `subspace_sizes` will
                         be computed.
@@ -87,11 +96,11 @@ class MISTConfig:
         default_factory=lambda: [
             ["No_Beard", "Goatee", "Mustache"],
             ["Male"],
-            ["Bald"],
             ["Pale_Skin"],
             ["Black_Hair", "Brown_Hair", "Gray_Hair", "Blond_Hair"],
         ]
     )
+    alternative_factors: List[List[str]] = field(default_factory=lambda: [["Male"], ["Attractive"], ["Male"], ["Bald"]])
     subspace_sizes: List[int] = field(default_factory=lambda: [1, 2])
     mist_fractions: Optional[List[float]] = None
     mist_Ns: Optional[List[int]] = field(default_factory=lambda: [55000, 16000])
@@ -220,10 +229,12 @@ def _train_mist(
 
 def _process_subspace(
     X: Dict[str, torch.Tensor],
+    Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
     A_hat: geoopt.ManifoldTensor,
     model: BetaVAE,
     factors: List[str],
+    alternative_factors: List[str],
     subspace_size: int,
     erased: bool,
     mist_N: int,
@@ -238,10 +249,12 @@ def _process_subspace(
     with regard to each of the axes, and sampling from the subspace.
     Args:
         X: Dictionary of the observations split into "train", "val", and "test" splits
+        Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
         A_hat: The projection matrix.
         model: The original trained model
         factors: The factors of interest
+        alternative_factors: The set of factors of interest to consider.
         subspace_size: The current size of the subspace considered.
                        This is needed since in the case when looking at the "erasing" projection matrix, the matrix
                        will already be of dimensionality `n x n`, where `n` is the size of the full representation space
@@ -298,10 +311,7 @@ def _process_subspace(
                 file_name=f"latent_traversals_intervened_{subspace_size}_{factors}_{mist_N}_{ii}.png",
             )
 
-    # TODO (Anej): possibly add heatmaps or trends of the factors of interest against some dimensions
-
-    if not erased:
-        # Only calculate this for the projected subspace, since the number of dimensions it too large otherwise so
+        # Only calculate this for the projected subspace, since the number of dimensions it too large otherwise, so
         # it takes too long
         print("Calculating the mutual information about the factors captured in the axes of the projected subspace.")
         axis_mi = evaluation.axis_factor_mutual_information(
@@ -310,6 +320,34 @@ def _process_subspace(
         print(f"Average amount of information captured about:\n {axis_mi.mean(axis=1).sort_values(ascending=False)}.")
         print(f"Maximum amount of information captured about:\n {axis_mi.max(axis=1).sort_values(ascending=False)}.")
         axis_mi.to_csv(f"axis_factor_mi_{subspace_size}_{factors}_{mist_N}.csv")
+
+        for alternative_factor in alternative_factors:
+            print(f"Checking how much information about {alternative_factor} was also captured in the subspace.")
+            print("Training MIST on the entire VAE space.")
+            full_alternative_factors_result = _train_mist(
+                Z=Z["train"],
+                Y=Y["train"][:, [_get_dataset_module(cfg).attribute2idx[alternative_factor]]],
+                subspace_size=model.model_config.latent_dim,
+                fit_subspace=False,
+                cfg=cfg,
+            )
+            full_alternative_factors_mi = full_alternative_factors_result.mutual_information
+            print(f"The information about {alternative_factor} in the full VAE space is {full_alternative_factors_mi}")
+            experiment_results[f"I({alternative_factor}, VAE | N={mist_N})"] = full_alternative_factors_mi
+
+            print(f"Training MIST for {alternative_factor} on the {subspace_size}-dimensional subspace of {factors}.")
+            alternative_factors_subspace_result = _train_mist(
+                Z=Z_train_projected,
+                Y=Y["train"][:, [_get_dataset_module(cfg).attribute2idx[alternative_factor]]],
+                subspace_size=subspace_size,
+                fit_subspace=False,
+                cfg=cfg,
+            )
+            alternative_factors_mi = alternative_factors_subspace_result.mutual_information
+            print(f"The information about {alternative_factor} in the found space is {alternative_factors_mi}")
+            experiment_results[
+                f"I({alternative_factor}, {subspace_size}-{factors}-subspace | N={mist_N})"
+            ] = alternative_factors_mi
 
     # Plot the reconstructions on the subspace
     # Just the reconstructions
@@ -354,7 +392,13 @@ def _process_subspace(
         # representation space
         print(f"Training MIST on the erased {subspace_size}-dimensional subspace for {factors}.")
         erased_subspace_result = _train_mist(
-            Z=Z_train_projected, Y=Y["train"], subspace_size=projection_subspace_size, fit_subspace=False, cfg=cfg
+            Z=Z_train_projected,
+            Y=Y["train"][
+                :, [_get_dataset_module(cfg).attribute2idx[factor_of_interest] for factor_of_interest in factors]
+            ],
+            subspace_size=projection_subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
+            fit_subspace=False,
+            cfg=cfg,
         )
         erased_mi = erased_subspace_result.mutual_information
         print(f"The information about {factors} in the erased space is {erased_mi}")
@@ -386,6 +430,7 @@ def _process_factors_of_interest(
     Y: Dict[str, torch.Tensor],
     model: BetaVAE,
     factors_of_interest: List[str],
+    alternative_factors: List[str],
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
     device: str,
@@ -402,14 +447,13 @@ def _process_factors_of_interest(
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
         model: The loaded trained VAE model to be applied to the data in `X`
         factors_of_interest: The set of factors of interest to consider.
+        alternative_factors: The set of factors for which to check how much information was captured about them in the
+                             found subspace.
         experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
         device: The device to load the data to.
         rng: The random generator.
-
     """
-
-    # TODO (Anej): possibly add heatmaps or trends of the factors of interest against some dimensions
 
     # Compute the indices of the factors of interest in the ground-truth data matrix `Y`
     factors_of_interest_idx = [
@@ -476,10 +520,12 @@ def _process_factors_of_interest(
             # Process and analyze the subspace defined by the projection matrix onto the optimal subspace
             _process_subspace(
                 X=X,
+                Z=Z,
                 Y=Y,
                 A_hat=subspace_result.A.to(device),
                 model=model,
                 factors=factors_of_interest,
+                alternative_factors=alternative_factors,
                 subspace_size=subspace_size,
                 erased=False,
                 mist_N=mist_N,
@@ -494,11 +540,12 @@ def _process_factors_of_interest(
             # information on the entire dataset
             _process_subspace(
                 X=X,
+                Z=Z,
                 Y=Y,
                 A_hat=(torch.eye(model.model_config.latent_dim) - subspace_result.A @ subspace_result.A.T).to(device),
                 model=model,
                 factors=factors_of_interest,
-                # subspace_size=trained_model.model_config.latent_dim,
+                alternative_factors=[],
                 subspace_size=subspace_size,
                 erased=True,
                 mist_N=mist_N,
@@ -524,6 +571,7 @@ def main(cfg: MISTConfig):
     # This will keep various metrics from the experiment
     experiment_results = dict()
 
+    pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
 
     (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = _load_data(cfg)
@@ -582,14 +630,15 @@ def main(cfg: MISTConfig):
 
     # Go through the specified factors of interest, and for each provided set, find the subspace capturing the most
     # information about then, and analyse it
-    for factors_of_interest in cfg.factors_of_interest:
-        print(f"Processing the set of factors {factors_of_interest}.")
+    for ii in range(len(cfg.factors_of_interest)):
+        print(f"Processing the set of factors {cfg.factors_of_interest[ii]}.")
         _process_factors_of_interest(
             {"train": X_train, "val": X_val, "test": X_test},
             {"train": Z_train, "val": Z_val, "test": Z_test},
             {"train": Y_train, "val": Y_val, "test": Y_test},
             trained_model,
-            factors_of_interest,
+            cfg.factors_of_interest[ii],
+            cfg.alternative_factors[ii],
             experiment_results,
             cfg,
             device,

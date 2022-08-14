@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 from latte.models.mine import mine
 
-from latte.models.mist import supervised_mist
+from latte.models.mist import mist
 from latte.modules.data import datamodules as dm
 from latte.manifolds import utils as mutils
 
@@ -28,18 +28,18 @@ class MISTResult:
         loss (float): The estimate of the mutual information as calculated on the test dataset
         validation_loss (float): The estimate of the mutual information
                                                 as calculated on the validation dataset
-        estimator (supervised_mist.SupervisedMIST): The model trained and used for estimation of the mutual information
+        estimator (mist.SupervisedMIST): The model trained and used for estimation of the mutual information
         A: In case of also estimating the linear subspace capturing the most information, this holds the
                   d-frame defining the estimated subspace
     """
 
     mutual_information: float
     loss: float
-    estimator: supervised_mist.SupervisedMIST
+    estimator: mist.MIST
     A: geoopt.ManifoldTensor
 
 
-def _construct_supervised_mist(
+def _construct_mist(
     x_size: int,
     z_max_size: int,
     subspace_size: int,
@@ -58,7 +58,7 @@ def _construct_supervised_mist(
     n_density_updates: int = 0,
     verbose: bool = False,
     checkpoint_path: Optional[str] = None,
-) -> supervised_mist.SupervisedMIST:
+) -> mist.MIST:
     """
     Constructs the Supervised MIST model to be used for finding the optimal subspace.
     It can either construct it from scratch or load a trained model.
@@ -145,7 +145,7 @@ def _construct_supervised_mist(
     # (best) one with the same setting of the hyperparameters.
     # It allows the function to be used to load the best checkpoint model based on the validation data.
     if checkpoint_path is None:
-        model = supervised_mist.SupervisedMIST(
+        model = mist.MIST(
             n=x_size,
             d=subspace_size,
             mine_args=mine_args,
@@ -160,7 +160,7 @@ def _construct_supervised_mist(
             verbose=verbose,
         )
     else:
-        model = supervised_mist.SupervisedMIST.load_from_checkpoint(
+        model = mist.MIST.load_from_checkpoint(
             checkpoint_path=checkpoint_path,
             n=x_size,
             d=subspace_size,
@@ -177,8 +177,8 @@ def _construct_supervised_mist(
     return model
 
 
-def _train_supervised_mist(
-    model: supervised_mist.SupervisedMIST,
+def _train_mist(
+    model: mist.MIST,
     data: dm.MISTDataModule,
     trainer_kwargs: Dict[str, Any],
     log_to_wb: bool = False,
@@ -262,12 +262,12 @@ def find_subspace(
     )
 
     # Construct the model
-    model = _construct_supervised_mist(
+    model = _construct_mist(
         **model_kwargs if model_kwargs is not None else dict(),
     )
 
     # Train the model
-    training_results = _train_supervised_mist(
+    training_results = _train_mist(
         model,
         data,
         trainer_kwargs if trainer_kwargs is not None else dict(),
@@ -276,7 +276,7 @@ def find_subspace(
     )
 
     # Load the best model on the validation data
-    best_model = _construct_supervised_mist(
+    best_model = _construct_mist(
         checkpoint_path=training_results["best_model_path"],
         **model_kwargs if model_kwargs is not None else dict(),
     )
@@ -285,7 +285,8 @@ def find_subspace(
     A_hat = best_model.projection_layer.A.detach().cpu()
 
     # Assert we get a valid orthogonal matrix
-    assert mutils.is_orthonormal(A_hat, atol=1e-2), (
+    # We relax the condition for larger matrices since they are harder to keep close to orthogonal
+    assert mutils.is_orthonormal(A_hat, atol=1e-3 + 1e-4 * A_hat.shape[1]), (
         f"A_hat.T @ A_hat = {A_hat.T @ A_hat}, "
         f"distance from orthogonal = {torch.linalg.norm(A_hat.T @ A_hat - torch.eye(A_hat.shape[1]))}"
     )
