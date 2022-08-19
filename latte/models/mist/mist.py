@@ -30,7 +30,7 @@ class MIST(pl.LightningModule):
         self,
         n: int,
         mine_args: Dict[str, Any],
-        club_args: Optional[Dict[str, Any]],
+        club_args: Optional[Dict[str, Any]] = None,
         d: Optional[int] = None,
         subspace_fit: bool = True,
         gamma: float = 1.0,
@@ -99,7 +99,7 @@ class MIST(pl.LightningModule):
         # TODO (Anej): Is this fine like this or should the projection layer just not be used
         #  if manifold_optimisation=False?
         self.projection_layer = ManifoldProjectionLayer(
-            n, d, init=None if self.manifold_optimisation else None, stiefel_manifold=self.manifold_optimisation
+            n, d, init=None if self.manifold_optimisation else torch.eye(n), stiefel_manifold=self.manifold_optimisation
         )
         self.n_density_updates = n_density_updates
         self.mine_learning_rate = mine_learning_rate
@@ -336,7 +336,7 @@ class MIST(pl.LightningModule):
             threshold=self.lr_scheduler_min_delta,
             threshold_mode="abs",
             verbose=self.verbose,
-            min_lr=1e-6,
+            min_lr=1e-8,
         )
         if self.minimise_mi:
             club_density_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

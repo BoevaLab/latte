@@ -14,7 +14,6 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from latte.models.mine import mine
-
 from latte.models.mist import mist
 from latte.modules.data import datamodules as dm
 from latte.manifolds import utils as mutils
@@ -28,7 +27,7 @@ class MISTResult:
         loss (float): The estimate of the mutual information as calculated on the test dataset
         validation_loss (float): The estimate of the mutual information
                                                 as calculated on the validation dataset
-        estimator (mist.SupervisedMIST): The model trained and used for estimation of the mutual information
+        estimator (mist.MIST): The model trained and used for estimation of the mutual information
         A: In case of also estimating the linear subspace capturing the most information, this holds the
                   d-frame defining the estimated subspace
     """
@@ -42,8 +41,9 @@ class MISTResult:
 def _construct_mist(
     x_size: int,
     z_max_size: int,
-    subspace_size: int,
-    mine_network_width: int,
+    subspace_fit: bool = True,
+    subspace_size: Optional[int] = None,
+    mine_network_width: Optional[int] = None,
     club_network_width: Optional[int] = None,
     z_min_size: Optional[int] = None,
     statistics_network: Optional[mine.ManifoldStatisticsNetwork] = None,
@@ -60,7 +60,7 @@ def _construct_mist(
     checkpoint_path: Optional[str] = None,
 ) -> mist.MIST:
     """
-    Constructs the Supervised MIST model to be used for finding the optimal subspace.
+    Constructs the MIST model to be used for finding the optimal subspace.
     It can either construct it from scratch or load a trained model.
 
     Args:
@@ -68,6 +68,8 @@ def _construct_mist(
         z_max_size: Dimensionality of the distribution in regard to which mutual information should be maximised.
         z_min_size: Dimensionality of the distribution in regard to which mutual information should be minimised.
         subspace_size: Dimensionality of the subspace onto which the first distribution should be projected.
+        subspace_fit: Whether to find the optimal `d`-dimensional subspace or just estimate the mutual information
+                      on the entire space.
         mine_network_width: Size of the hidden layers of the standard `MINE` network.
                             Will be used if the `statistics_network` is not provided.
         club_network_width: Size of the hidden layers of the standard `MINE` network.
@@ -92,6 +94,7 @@ def _construct_mist(
     """
 
     if statistics_network is None:
+        assert mine_network_width is not None
         statistics_network = mine.StatisticsNetwork(
             S=nn.Sequential(
                 nn.Linear(subspace_size + z_max_size, mine_network_width),
@@ -102,6 +105,7 @@ def _construct_mist(
             out_dim=mine_network_width,
         )
     if club_density_estimators is None and gamma < 1.0:
+        assert club_network_width is not None
         # If the CLUB density estimator is not provided and minimisation is intended, we construct the default networks
         club_density_estimators = {
             "mean": nn.Sequential(
@@ -148,6 +152,7 @@ def _construct_mist(
         model = mist.MIST(
             n=x_size,
             d=subspace_size,
+            subspace_fit=subspace_fit,
             mine_args=mine_args,
             club_args=club_args,
             gamma=gamma,
@@ -164,6 +169,7 @@ def _construct_mist(
             checkpoint_path=checkpoint_path,
             n=x_size,
             d=subspace_size,
+            subspace_fit=subspace_fit,
             mine_args=mine_args,
             club_args=club_args,
             gamma=gamma,
@@ -185,7 +191,7 @@ def _train_mist(
     wb_run_name: Optional[str] = None,
 ) -> Dict[str, Union[str, Dict[str, float]]]:
     """
-    Trains a constructed Supervised MIST model to find the projection matrix onto the optimal subspace.
+    Trains a constructed MIST model to find the projection matrix onto the optimal subspace.
     Returns:
         The path to the best trained model checkpoint (best on the validation set),
         and the results of evaluating the model on the validation and the test splits of the data.
@@ -233,10 +239,10 @@ def find_subspace(
 ) -> MISTResult:
     """
     Main function of the module.
-    It uses the Supervised MIST model to find the optimal linear subspace (dimensionality specified in `model_kwargs`)
+    It uses the MIST model to find the optimal linear subspace (dimensionality specified in `model_kwargs`)
     which captures as much information as possible about the random variables `Z_max` and as little information as
     possible about `Z_min`.
-    See the implementation of the `SupervisedMIST` model for more details.
+    See the implementation of the `MIST` model for more details.
     Args:
         X: Samples of the first distribution.
         Z_max: Corresponding samples of the distribution in regard to which the mutual information should be maximised.
@@ -286,7 +292,7 @@ def find_subspace(
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
-    assert mutils.is_orthonormal(A_hat, atol=1e-3 + 1e-4 * A_hat.shape[1]), (
+    assert mutils.is_orthonormal(A_hat, atol=2e-3 + 1e-4 * A_hat.shape[1]), (
         f"A_hat.T @ A_hat = {A_hat.T @ A_hat}, "
         f"distance from orthogonal = {torch.linalg.norm(A_hat.T @ A_hat - torch.eye(A_hat.shape[1]))}"
     )
