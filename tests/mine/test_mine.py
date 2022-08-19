@@ -108,7 +108,7 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
 # @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "n_samples",
-    [16000],
+    [20000],
 )
 @pytest.mark.parametrize(
     "d",
@@ -116,7 +116,7 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
 )
 @pytest.mark.parametrize(
     "n_epochs",
-    [256],
+    [512],
 )
 def test_multivariate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
     mu = np.zeros(d).astype(np.float32)
@@ -183,9 +183,9 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
 
     for ii in [36, 48, 58]:
         # assert that the mutual information estimate has increased on average compared to earlier epochs
-        assert torch.mean(
-            [cb.epoch_outputs[ii - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]
-        ) > torch.mean([cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-4, 5)])
+        assert sum([cb.epoch_outputs[ii - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]) > sum(
+            [cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]
+        )
 
 
 # DONE

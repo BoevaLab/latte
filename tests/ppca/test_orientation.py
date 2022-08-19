@@ -64,12 +64,12 @@ def test_loss_decrease(n: int, d: int):
         # Train the model to find the optimal projection matrix
         trainer.fit(orientation_model, datamodule=orientation_data)
 
-        for ii in [16, 30]:
+        for ii in [16, 24]:
             # assert that the mutual information estimate has increased on average compared to earlier epochs
-            r[sign] &= np.mean(
-                [cb.epoch_outputs[ii - d]["validation_loss_epoch"].detach().cpu().numpy() for d in range(-2, 3)]
-            ) < np.mean(
-                [cb.epoch_outputs[ii - 12 - d]["validation_loss_epoch"].detach().cpu().numpy() for d in range(-2, 3)]
+            r[sign] &= sum(
+                [cb.epoch_outputs[ii - d]["validation_loss_epoch"].detach().cpu().numpy() for d in range(-4, 5)]
+            ) < sum(
+                [cb.epoch_outputs[ii - 12 - d]["validation_loss_epoch"].detach().cpu().numpy() for d in range(-4, 5)]
             )
 
     assert r[-1] or r[1]
