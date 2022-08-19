@@ -58,7 +58,7 @@ def test_loss_decrease(n: int, d: int):
             max_epochs=32,
             enable_progress_bar=False,
             enable_model_summary=False,
-            gpus=1,
+            gpus=0,
         )
 
         # Train the model to find the optimal projection matrix
