@@ -183,9 +183,9 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
 
     for ii in [36, 48, 58]:
         # assert that the mutual information estimate has increased on average compared to earlier epochs
-        assert np.mean(
+        assert torch.mean(
             [cb.epoch_outputs[ii - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]
-        ) > np.mean([cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-4, 5)])
+        ) > torch.mean([cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-4, 5)])
 
 
 # DONE

@@ -104,6 +104,7 @@ def test_orientation(n: int, d: int) -> None:
         p_val=0.1,
         max_epochs=256,
         verbose=False,
+        gpus=0,
     )
 
     R_hat = orientation_result.R
