@@ -54,6 +54,10 @@ metrics_to_plot = [
     (ppca_evaluation.OrientationMetrics.SIGMA_SQUARED_HAT,),
     (ppca_evaluation.OrientationMetrics.DISTANCE_MU,),
     (
+        ppca_evaluation.OrientationMetrics.TRAIN_LOSS,
+        ppca_evaluation.OrientationMetrics.TEST_LOSS,
+    ),
+    (
         "Difference between subspaces",
     ),  # Manually added entries about the PCA subspace error since they are not in the class OrientationMetrics
     # ("Normalised difference between subspaces",),
@@ -71,7 +75,11 @@ metric_titles = {
     (ppca_evaluation.OrientationMetrics.DISTANCE_MU,): r"$\mu$ Error",
     ("Difference between subspaces",): "Subspace Error",
     # ("Normalised difference between subspaces",),
-    ("Number of epochs required to orient the model",): "Epochs required for orientation",
+    ("Number of epochs required to orient the model",): "Epochs Required for Orientation",
+    (
+        ppca_evaluation.OrientationMetrics.TRAIN_LOSS,
+        ppca_evaluation.OrientationMetrics.TEST_LOSS,
+    ): "Train and Test Loss",
 }
 
 
@@ -240,6 +248,8 @@ def fit(
         sigma=dataset.sigma,
         sigma_hat=np.sqrt(pca.noise_variance_),
         stopped_epoch=stopped_epoch,
+        train_loss=orientation_result.train_loss,
+        loss=orientation_result.loss,
     )
 
     # print("--- Results of the fit. ---")

@@ -32,6 +32,8 @@ class OrientationMetrics:
     NUMBER_OF_EPOCHS_REQUIRED = "Number of epochs required to orient the model"
     SIGMA_HAT = "Observational noise standard deviation"
     SIGMA_SQUARED_HAT = "Observational noise variance"
+    TRAIN_LOSS = "Train loss"
+    TEST_LOSS = "Test loss"
 
 
 def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, U_hat: np.ndarray) -> pd.DataFrame:
@@ -150,6 +152,8 @@ def evaluate_full_result(
     sigma: float,
     sigma_hat: float,
     stopped_epoch: int,
+    train_loss: float,
+    loss: float,
     nruns: int = 50,
 ) -> pd.DataFrame:
     """Evaluates the orientation of the original mixing matrix estimate `A_hat` - `A_hat_oriented` - fit to correspond
@@ -179,6 +183,10 @@ def evaluate_full_result(
     """
     # We keep a list of (metric, value) pairs to keep the order in the data frame
     evaluation_results = []
+
+    # Store train and test losses
+    evaluation_results.append((OrientationMetrics.TEST_LOSS, loss))
+    evaluation_results.append((OrientationMetrics.TRAIN_LOSS, train_loss))
 
     # Calculate the distance of the estimated rotation matrix to a permutation matrix to assess how well aligned the
     # original mixing matrix captured individual factors

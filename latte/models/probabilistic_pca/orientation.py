@@ -31,6 +31,7 @@ class OrientationResult:
 
     R: np.ndarray
     loss: float
+    train_loss: float
     stopped_epoch: int
 
 
@@ -144,7 +145,7 @@ def orient(
     # different initialisations of the matrix; once with the identity matrix and once with the identity matrix with the
     # first element being -1
     signs = (-1, 1) if n_captured_directions == n_relevant_factors else (1,)
-    R_hats, losses, stopped_epochs = dict(), dict(), dict()
+    R_hats, losses, train_losses, stopped_epochs = dict(), dict(), dict(), dict()
     for sign in signs:
 
         # Initialise the model with the appropriate initialisation of the matrix
@@ -174,6 +175,8 @@ def orient(
         # Train the model to find the optimal projection matrix
         trainer.fit(orientation_model, datamodule=orientation_data)
 
+        train_losses[sign] = trainer.callback_metrics["train_loss_epoch"].item()
+
         # Evaluate the fit
         test_loss = trainer.test(ckpt_path="best", dataloaders=orientation_data, verbose=False)[0]["test_loss_epoch"]
 
@@ -201,9 +204,12 @@ def orient(
     # If n_captured_directions == n_relevant_factors, we did not need to run orientation twice
     # with different starting points
     return OrientationResult(
-        R_hats[1] if n_captured_directions != n_relevant_factors or losses[1] < losses[-1] else R_hats[-1],
-        min(losses.values()),
-        stopped_epochs[1]
+        R=R_hats[1] if n_captured_directions != n_relevant_factors or losses[1] < losses[-1] else R_hats[-1],
+        loss=min(losses.values()),
+        train_loss=train_losses[1]
+        if n_captured_directions != n_relevant_factors or losses[1] < losses[-1]
+        else train_losses[-1],
+        stopped_epoch=stopped_epochs[1]
         if n_captured_directions != n_relevant_factors or losses[1] < losses[-1]
         else stopped_epochs[-1],
     )
