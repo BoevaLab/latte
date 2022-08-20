@@ -16,7 +16,7 @@ from latte.modules.data.datamodules import GenericDataModule
 @pytest.mark.parametrize("n", [6, 8, 10])
 @pytest.mark.parametrize("d", [2, 3])
 def test_loss_decrease(n: int, d: int):
-    dataset = probabilistic_pca.generate(N=4096, n=n, d=d, d_measured=d, sigma=0.1, rng=1)
+    dataset = probabilistic_pca.generate(N=10000, n=n, d=d, d_measured=d, sigma=0.1, rng=1)
 
     X_fit, X_eval, Z_fit, Z_eval = train_test_split(dataset.X, dataset.Z, test_size=0.25, random_state=1)
 
@@ -55,7 +55,7 @@ def test_loss_decrease(n: int, d: int):
         # Train the model
         trainer = Trainer(
             callbacks=[cb],
-            max_epochs=32,
+            max_epochs=36,
             enable_progress_bar=False,
             enable_model_summary=False,
             gpus=0,
@@ -64,7 +64,7 @@ def test_loss_decrease(n: int, d: int):
         # Train the model to find the optimal projection matrix
         trainer.fit(orientation_model, datamodule=orientation_data)
 
-        for ii in [16, 24]:
+        for ii in [15, 30]:
             # assert that the mutual information estimate has increased on average compared to earlier epochs
             r[sign] &= sum(
                 [cb.epoch_outputs[ii - d]["validation_loss_epoch"].detach().cpu().numpy() for d in range(-4, 5)]
