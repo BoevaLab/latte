@@ -6,6 +6,7 @@ import torch
 from latte.dataset import utils as dsutils
 from latte.models.probabilistic_pca import probabilistic_pca
 from latte.utils import evaluation
+from latte.metrics import mig
 
 
 class OrientationMetrics:
@@ -34,6 +35,8 @@ class OrientationMetrics:
     SIGMA_SQUARED_HAT = "Observational noise variance"
     TRAIN_LOSS = "Train loss"
     TEST_LOSS = "Test loss"
+    ORIGINAL_MIG = "Original MIG"
+    ORIENTED_MIG = "Oriented MIG"
 
 
 def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, U_hat: np.ndarray) -> pd.DataFrame:
@@ -238,6 +241,10 @@ def evaluate_full_result(
     Z_pca_true = probabilistic_pca.get_latent_representations(X, A, mu, sigma)
     Z_pca_original = probabilistic_pca.get_latent_representations(X, A_hat, mu_hat, sigma_hat)
     Z_pca_oriented = probabilistic_pca.get_latent_representations(X, A_hat_oriented, mu_hat, sigma_hat)
+
+    # Calculate the MIG score of the original and the oriented representations
+    evaluation_results.append((OrientationMetrics.ORIGINAL_MIG, mig.mig(Z_pca_original, Z)))
+    evaluation_results.append((OrientationMetrics.ORIENTED_MIG, mig.mig(Z_pca_oriented, Z)))
 
     # Calculate the mean latent error from the true observations
     r_error_oriented = np.linalg.norm(Z_pca_oriented - Z, axis=1).mean()
