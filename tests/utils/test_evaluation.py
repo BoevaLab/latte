@@ -5,6 +5,7 @@ import numpy as np
 
 
 from latte.utils import evaluation
+from latte.evaluation import metrics
 
 
 def test_subspace_fit() -> None:
@@ -47,4 +48,4 @@ def test_distance_to_permutation_matrix() -> None:
 
     for _ in range(10):
         p = rng.permutation(10)
-        assert pytest.approx(0) == evaluation.distance_to_permutation_matrix(Id[p][p])
+        assert pytest.approx(0) == metrics.distance_to_permutation_matrix(Id[p][p])
