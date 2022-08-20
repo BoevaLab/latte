@@ -4,11 +4,9 @@ of factor of variation.
 It is similar to the `mist_benchmark_images.py` script, this one optionally *trains a VAE from scratch*,
 and then fits MIST, and is specific to the `dSprites` data.
 It is also older and thus less optimised.
-TODO (Anej): This could be replaced by a more general script in the future.
 
 To qualitatively evaluate the disentanglement, latent traversals of the original and transformed axes are plotted.
 """
-# TODO (Anej): UPDATE; This should use the benchmark_VAE package
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, List
 import os

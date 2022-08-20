@@ -1,15 +1,17 @@
-# TODO (Anej): Documentation
-
 """
 The Pytorch Lightning implementation of the MIST model.
-It can be used to find a linear subspace of the support of some distribution (e.g., over the latent representations)
-which at the same time maximises the mutual information with regard to a second distribution (in the form of a set of
-observed factors) and minimises it with regard to a third distribution (in the form of a set of observed factors).
-In the main application of this model, the first distribution would represent the learned representations of some data,
-while the second and third distributions would correspond to some observed (generative) factors we would like to
-investigate (e.g., see where they are (not) captured in the full representation space.
-
-**Note**: the minimisation aspect does not perform well yet.
+It can be used for two purposes:
+1. To estimate the mutual information between two distributions in the form of a lower bound estimator `MINE` as
+   described in "Belghazi et al. (2018). Mutual information neural estimation.".
+   Primarily, this is intended to be used to compare the mutual information between two representation functions and
+   thus the consistency of a representation learning algorithm.
+2. To find a linear subspace of the support of some distribution (e.g., over the latent representations) which at
+   the same time maximises the mutual information with regard to a second distribution (in the form of a set of observed
+   factors) and minimises it with regard to a third distribution (in the form of a set of observed factors).
+   In the main application of this model, the first distribution would represent the learned representations of some
+   data, while the second and third distributions would correspond to some observed (generative) factors we would like
+   to investigate (e.g., see where they are (not) captured in the full representation space.
+   **Note**: the minimisation aspect does not perform well yet.
 """
 
 from typing import Any, Union, Dict, Tuple, List, Optional, Sequence
@@ -30,10 +32,10 @@ class MIST(pl.LightningModule):
         self,
         n: int,
         mine_args: Dict[str, Any],
-        club_args: Optional[Dict[str, Any]] = None,
-        d: Optional[int] = None,
         subspace_fit: bool = True,
+        d: Optional[int] = None,
         gamma: float = 1.0,
+        club_args: Optional[Dict[str, Any]] = None,
         n_density_updates: int = 0,
         mine_learning_rate: float = 1e-3,
         club_learning_rate: float = 1e-4,
@@ -44,29 +46,32 @@ class MIST(pl.LightningModule):
         verbose: bool = False,
     ):
         """
-        Implementation of the supervised MIST (Mutual Information optimisation over the Stiefel manifold) model.
-        The model is designed to find the linear subspace of the data space of a random vector `X` which captures
-        the most information about some random variables `Z_max` and as little information as possible about some other
-        random variable `Z_min` among all possible linear subspace of the same dimensionality.
-        This is done by projecting the samples of `X` onto the linear subspace with a column-orthogonal matrix
-        (a k-frame), and finding the matrix which projects onto the subspace with the desired properties.
-        The optimisation over the k-frames is done by optimising over the Stiefel manifold of k-frames, while the
-        mutual information between random vectors is lower bounded with MINE (for maximisation) and upper-bounded by
-        CLUB (for minimisation).
-        This is the *supervised* version of the MIST model, since it works with observations of the latent factors
-        we are trying to capture.
+        Implementation of the supervised MIST (Mutual Information optimisation over the STiefel manifold) model.
+        The model is designed to:
+        (i) estimate the mutual information between two distributions based on samples from them with `MINE` or
+        (2) find the linear subspace of the data space of a random vector `X` which captures the
+            most information about some random variables `Z_max` and as little information as possible about some other
+            random variable `Z_min` among all possible linear subspace of the same dimensionality.
+            This is done by projecting the samples of `X` onto the linear subspace with a column-orthogonal matrix
+            (a k-frame), and finding the matrix which projects onto the subspace with the desired properties.
+            The optimisation over the k-frames is done by optimising over the Stiefel manifold of k-frames, while the
+            mutual information between random vectors is lower bounded with MINE (for maximisation) and upper-bounded by
+            CLUB (for minimisation).
+            This is the *supervised* version of the MIST model, since it works with observations of the latent factors
+            we are trying to capture.
+            **WARNING**: Minimisation currently does not seem to work to satisfaction.
+            Please keep gamma = 1 for good performance.
+
         The model also continually assesses the mutual information between the distributions with an implementation of
         the non-parametric KSG estimator.
-
-        **WARNING**: Minimisation currently does not seem to work to satisfaction.
-        Please keep gamma = 1 for good performance.
         Args:
             n: The dimensionality of the original representation space.
-            d: The dimensionality of the subspace to project onto.
-            mine_args: The args for MINE.
-            club_args: The args for CLUB.
             subspace_fit: Whether to find the optimal `d`-dimensional subspace or just estimate the mutual information
                           on the entire space.
+            d: The optional dimensionality of the subspace to project onto.
+               Can be None if just estimating the mutual information between two distributions.
+            mine_args: The args for MINE.
+            club_args: The args for CLUB.
             gamma: The coefficient determining the contribution of the MINE and CLUB losses.
                    Final loss is computed as `gamma * mine_loss + (1 - gamma) * club_loss`, meaning that larger values
                    of gamma put more emphasis on maximising the mutual information w.r.t. the factors of interest while
@@ -90,7 +95,7 @@ class MIST(pl.LightningModule):
         assert subspace_fit or gamma == 1.0  # When estimating the MI between two distribution, we only use `MINE`
         super().__init__()
 
-        # Sets the flag of whether to do
+        # Sets the flag of whether to do manifold optimisation (to find the optimal subspace)
         self.manifold_optimisation = subspace_fit
         self.gamma = gamma
         self.minimise_mi = self.gamma < 1.0  # Whether to also minimise MI w.r.t. some factors (depends on gamma)
@@ -262,9 +267,18 @@ class MIST(pl.LightningModule):
                 logger=True,
             )
 
-    def validation_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_idx: int
+    def predict_without_gradients(
+        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], step: str
     ) -> Dict[str, torch.Tensor]:
+        """
+        Helper function to perform a validation or test step without logging gradients.
+        Args:
+            batch: The batch of data
+            step: "validation" or "test"
+
+        Returns:
+            The dictionary that `*_step` `pytorch_lightning` methods should return.
+        """
 
         x, z_max, z_min = batch  # Samples from the first, second, and the third distribution
 
@@ -272,23 +286,19 @@ class MIST(pl.LightningModule):
             x_projected = self.projection_layer(x)
             loss, mine_mi, club_mi = self(x, z_max, z_min)
 
-        self.log_on_evaluation_step("validation", loss, mine_mi, club_mi, x_projected, z_max, z_min)
+        self.log_on_evaluation_step(step, loss, mine_mi, club_mi, x_projected, z_max, z_min)
 
-        return {"validation_loss": loss}
+        return {f"{step}_loss": loss}
+
+    def validation_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> Dict[str, torch.Tensor]:
+        return self.predict_without_gradients(batch, "validation")
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_idx: int
     ) -> Dict[str, torch.Tensor]:
-
-        x, z_max, z_min = batch  # Samples from the first, second, and the third distribution
-
-        with torch.no_grad():
-            x_projected = self.projection_layer(x)
-            loss, mine_mi, club_mi = self(x, z_max, z_min)
-
-        self.log_on_evaluation_step("test", loss, mine_mi, club_mi, x_projected, z_max, z_min)
-
-        return {"test_loss": loss}
+        return self.predict_without_gradients(batch, "test")
 
     def validation_epoch_end(self, outputs: Sequence[Dict[str, torch.Tensor]]) -> None:
         """
@@ -319,14 +329,6 @@ class MIST(pl.LightningModule):
 
         # Separate optimisers for all parameters in the model
         mine_optimizer = torch.optim.Adam(list(self.mine.parameters()), lr=self.mine_learning_rate)
-        if self.minimise_mi:
-            club_density_optimizer = torch.optim.Adam(list(self.club.parameters()), lr=self.club_learning_rate)
-        if self.manifold_optimisation:
-            # A geoopt optimizer for optimization over the Stiefel manifold
-            manifold_optimizer = geoopt.optim.RiemannianAdam(
-                params=[self.projection_layer.A], lr=self.manifold_learning_rate
-            )
-
         # Separate learning rate schedulers for all parameters in the model
         mine_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             mine_optimizer,
@@ -338,7 +340,9 @@ class MIST(pl.LightningModule):
             verbose=self.verbose,
             min_lr=1e-8,
         )
+
         if self.minimise_mi:
+            club_density_optimizer = torch.optim.Adam(list(self.club.parameters()), lr=self.club_learning_rate)
             club_density_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 club_density_optimizer,
                 mode="min",
@@ -350,6 +354,11 @@ class MIST(pl.LightningModule):
                 min_lr=1e-6,
             )
         if self.manifold_optimisation:
+            # A geoopt optimizer for optimization over the Stiefel manifold
+            # It is instantiated only if search of the optimal subspace should be performed
+            manifold_optimizer = geoopt.optim.RiemannianAdam(
+                params=[self.projection_layer.A], lr=self.manifold_learning_rate
+            )
             manifold_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 manifold_optimizer,
                 mode="min",
