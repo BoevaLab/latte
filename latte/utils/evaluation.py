@@ -2,13 +2,14 @@
 Code for evaluating various general results and solutions used in `Latte`.
 """
 
-from typing import List
+from typing import List, Dict
 from collections import defaultdict
 from itertools import product
 
 import numpy as np
 import pandas as pd
 import torch
+from sklearn import metrics, preprocessing, linear_model
 
 from sklearn import feature_selection
 
@@ -87,3 +88,43 @@ def axis_factor_mutual_information(Z: torch.Tensor, Y: torch.Tensor, factor_name
         # we simulate 1 feature, we extract the first one
 
     return pd.DataFrame(mis)
+
+
+def evaluate_with_linear_model(
+    X_train: torch.Tensor,
+    y_train: torch.Tensor,
+    X_val: torch.Tensor,
+    y_val: torch.Tensor,
+    mode: str = "class",
+    loss: str = "log_loss",
+    random_state: int = 1,
+) -> Dict[str, float]:
+
+    scaler = preprocessing.StandardScaler().fit(X_train)
+    X_train = scaler.transform(X_train)
+    X_val = scaler.transform(X_val)
+
+    # print(f"Proportion of the positive class: {sum(y_train) / len(y_train):.3f}.")
+    model = linear_model.SGDClassifier if mode == "class" else linear_model.SGDRegressor
+    clf = model(loss=loss, random_state=random_state, tol=1e-4, n_iter_no_change=15, alpha=1e-4, max_iter=25000).fit(
+        X_train, y_train
+    )
+
+    y_val_hat = clf.predict(X_val)
+    y_train_hat = clf.predict(X_train)
+
+    return (
+        {
+            "accuracy": round(metrics.accuracy_score(y_val, y_val_hat), 3),
+            "f1": round(metrics.f1_score(y_val, y_val_hat, average="macro"), 3),
+            "train_accuracy": round(metrics.accuracy_score(y_train, y_train_hat), 3),
+            "train_f1": round(metrics.f1_score(y_train, y_train_hat, average="macro"), 3),
+        }
+        if mode == "class"
+        else {
+            "r2": round(metrics.r2_score(y_val, y_val_hat), 3),
+            "mse": round(metrics.mean_squared_error(y_val, y_val_hat), 3),
+            "train_r2": round(metrics.r2_score(y_train, y_train_hat), 3),
+            "train_mse": round(metrics.mean_squared_error(y_train, y_train_hat), 3),
+        }
+    )
