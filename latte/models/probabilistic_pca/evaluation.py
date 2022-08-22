@@ -6,6 +6,7 @@ import torch
 from latte.dataset import utils as dsutils
 from latte.models.probabilistic_pca import probabilistic_pca
 from latte.utils import evaluation
+from latte.evaluation import metrics
 
 
 class OrientationMetrics:
@@ -32,6 +33,10 @@ class OrientationMetrics:
     NUMBER_OF_EPOCHS_REQUIRED = "Number of epochs required to orient the model"
     SIGMA_HAT = "Observational noise standard deviation"
     SIGMA_SQUARED_HAT = "Observational noise variance"
+    TRAIN_LOSS = "Train loss"
+    TEST_LOSS = "Test loss"
+    ORIGINAL_MIG = "Original MIG"
+    ORIENTED_MIG = "Oriented MIG"
 
 
 def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, U_hat: np.ndarray) -> pd.DataFrame:
@@ -150,6 +155,8 @@ def evaluate_full_result(
     sigma: float,
     sigma_hat: float,
     stopped_epoch: int,
+    train_loss: float,
+    loss: float,
     nruns: int = 50,
 ) -> pd.DataFrame:
     """Evaluates the orientation of the original mixing matrix estimate `A_hat` - `A_hat_oriented` - fit to correspond
@@ -168,9 +175,11 @@ def evaluate_full_result(
         sigma (float): The true observable data noise standard deviation.
         sigma_hat (float): The estimate of the observable data noise standard deviation.
         stopped_epoch (int): Number of epochs required to orient the model.
-        n_runs (int, optional): How many random matrices to use to calculate the mean distance to a permutation matrix
-                                of a random matrix orthogonal matrix.
-                                Defaults to 50.
+        train_loss (float): The recorded final train loss of the orientation.
+        loss (float): The recorded final test loss of the orientation.
+        nruns (int, optional): How many random matrices to use to calculate the mean distance to a permutation matrix
+                               of a random matrix orthogonal matrix.
+                               Defaults to 50.
 
     Returns:
         pd.DataFrame: A data frame containing the values of the metrics grouped in the OrientationMetrics class.
@@ -180,12 +189,16 @@ def evaluate_full_result(
     # We keep a list of (metric, value) pairs to keep the order in the data frame
     evaluation_results = []
 
+    # Store train and test losses
+    evaluation_results.append((OrientationMetrics.TEST_LOSS, loss))
+    evaluation_results.append((OrientationMetrics.TRAIN_LOSS, train_loss))
+
     # Calculate the distance of the estimated rotation matrix to a permutation matrix to assess how well aligned the
     # original mixing matrix captured individual factors
     evaluation_results.append(
         (
             OrientationMetrics.DISTANCE_TO_PERMUTATION_MATRIX,
-            round(evaluation.distance_to_permutation_matrix(torch.from_numpy(R)), 3),
+            round(metrics.distance_to_permutation_matrix(torch.from_numpy(R)), 3),
         )
     )
     evaluation_results.append(
@@ -195,9 +208,7 @@ def evaluate_full_result(
                 float(
                     np.mean(
                         [
-                            evaluation.distance_to_permutation_matrix(
-                                geoopt.Stiefel().random(max(R.shape), min(R.shape))
-                            )
+                            metrics.distance_to_permutation_matrix(geoopt.Stiefel().random(max(R.shape), min(R.shape)))
                             for _ in range(nruns)
                         ]
                     )
@@ -230,6 +241,10 @@ def evaluate_full_result(
     Z_pca_true = probabilistic_pca.get_latent_representations(X, A, mu, sigma)
     Z_pca_original = probabilistic_pca.get_latent_representations(X, A_hat, mu_hat, sigma_hat)
     Z_pca_oriented = probabilistic_pca.get_latent_representations(X, A_hat_oriented, mu_hat, sigma_hat)
+
+    # Calculate the MIG score of the original and the oriented representations
+    evaluation_results.append((OrientationMetrics.ORIGINAL_MIG, metrics.mig(Z_pca_original, Z)))
+    evaluation_results.append((OrientationMetrics.ORIENTED_MIG, metrics.mig(Z_pca_oriented, Z)))
 
     # Calculate the mean latent error from the true observations
     r_error_oriented = np.linalg.norm(Z_pca_oriented - Z, axis=1).mean()

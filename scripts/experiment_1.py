@@ -49,41 +49,38 @@ metrics_to_plot = [
         ppca_evaluation.OrientationMetrics.DISTANCE_TO_PERMUTATION_MATRIX,
         ppca_evaluation.OrientationMetrics.MEAN_DISTANCE_TO_PERMUTATION_MATRIX,
     ),
-    # (
-    #     ppca_evaluation.OrientationMetrics.ORIGINAL_DISTANCE_TO_A,
-    #     ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A,
-    # ),
-    # (
-    #     ppca_evaluation.OrientationMetrics.ORIGINAL_DISTANCE_TO_A_NORMALISED,
-    #     ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A_NORMALISED,
-    # ),
-    # (ppca_evaluation.OrientationMetrics.ORIGINAL_DISTANCE_TO_A,),
     (ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A,),
-    # (ppca_evaluation.OrientationMetrics.ORIGINAL_DISTANCE_TO_A_NORMALISED,),
-    (ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A_NORMALISED,),
-    (
-        # ppca_evaluation.OrientationMetrics.ORIGINAL_REPRESENTATION_ERROR,
-        ppca_evaluation.OrientationMetrics.OPTIMAL_REPRESENTATION_ERROR,
-        ppca_evaluation.OrientationMetrics.ORIENTED_REPRESENTATION_ERROR,
-    ),
-    (
-        # ppca_evaluation.OrientationMetrics.ORIGINAL_OBSERVATION_ERROR,
-        ppca_evaluation.OrientationMetrics.OPTIMAL_OBSERVATION_ERROR,
-        ppca_evaluation.OrientationMetrics.ORIENTED_OBSERVATION_ERROR,
-    ),
-    (ppca_evaluation.OrientationMetrics.ORIENTED_REPRESENTATION_ERROR,),
-    (ppca_evaluation.OrientationMetrics.ORIENTED_OBSERVATION_ERROR,),
-    (ppca_evaluation.OrientationMetrics.RELATIVE_ORIENTED_REPRESENTATION_ERROR,),
-    (ppca_evaluation.OrientationMetrics.RELATIVE_ORIENTED_OBSERVATION_ERROR,),
-    # (ppca_evaluation.OrientationMetrics.SIGMA_HAT,),
+    # (ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A_NORMALISED,),
     (ppca_evaluation.OrientationMetrics.SIGMA_SQUARED_HAT,),
     (ppca_evaluation.OrientationMetrics.DISTANCE_MU,),
     (
+        ppca_evaluation.OrientationMetrics.TRAIN_LOSS,
+        ppca_evaluation.OrientationMetrics.TEST_LOSS,
+    ),
+    (
         "Difference between subspaces",
     ),  # Manually added entries about the PCA subspace error since they are not in the class OrientationMetrics
-    ("Normalised difference between subspaces",),
+    # ("Normalised difference between subspaces",),
     ("Number of epochs required to orient the model",),
 ]
+
+metric_titles = {
+    (
+        ppca_evaluation.OrientationMetrics.DISTANCE_TO_PERMUTATION_MATRIX,
+        ppca_evaluation.OrientationMetrics.MEAN_DISTANCE_TO_PERMUTATION_MATRIX,
+    ): "Distance to a Permutation Matrix",
+    (ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A,): "Matrix Error",
+    # (ppca_evaluation.OrientationMetrics.ORIENTED_DISTANCE_TO_A_NORMALISED,),
+    (ppca_evaluation.OrientationMetrics.SIGMA_SQUARED_HAT,): r"$\hat{\sigma}^2$",
+    (ppca_evaluation.OrientationMetrics.DISTANCE_MU,): r"$\mu$ Error",
+    ("Difference between subspaces",): "Subspace Error",
+    # ("Normalised difference between subspaces",),
+    ("Number of epochs required to orient the model",): "Epochs Required for Orientation",
+    (
+        ppca_evaluation.OrientationMetrics.TRAIN_LOSS,
+        ppca_evaluation.OrientationMetrics.TEST_LOSS,
+    ): "Train and Test Loss",
+}
 
 
 @hy.config
@@ -251,6 +248,8 @@ def fit(
         sigma=dataset.sigma,
         sigma_hat=np.sqrt(pca.noise_variance_),
         stopped_epoch=stopped_epoch,
+        train_loss=orientation_result.train_loss,
+        loss=orientation_result.loss,
     )
 
     # print("--- Results of the fit. ---")
@@ -441,7 +440,8 @@ def main(cfg: Experiment1Config):
             visualisation.metric_trend(
                 results_df[results_df["Metric"].isin(metrics)],
                 quantity_x_labels[quantity_name],
-                filepath / f"{','.join(metrics)}_effects.png",
+                title=metric_titles[metrics],
+                file_name=filepath / f"{','.join(metrics)}_effects.png",
             )
 
 

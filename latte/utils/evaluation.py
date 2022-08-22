@@ -2,16 +2,15 @@
 Code for evaluating various general results and solutions used in `Latte`.
 """
 
-from typing import List, Dict
+from typing import List
 from collections import defaultdict
 from itertools import product
 
 import numpy as np
 import pandas as pd
 import torch
-from scipy import optimize
 
-from sklearn import feature_selection, preprocessing, linear_model, metrics
+from sklearn import feature_selection
 
 
 def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
@@ -88,78 +87,3 @@ def axis_factor_mutual_information(Z: torch.Tensor, Y: torch.Tensor, factor_name
         # we simulate 1 feature, we extract the first one
 
     return pd.DataFrame(mis)
-
-
-def distance_to_permutation_matrix(R: torch.Tensor) -> float:
-    """
-    Calculates the Frobenius norm of the closest *signed* permutation matrix as measured by the Fribenius norm.
-    The closest signed permutation matrix is computed using the linear sum assignment algorithm with the cost
-    matrix defined by the contributions of the permutation matrix entries to the Frobenius norm.
-    *Importantly*, this assumes that the matrix R is *orthogonal*.
-    Implemented with the help of
-    https://math.stackexchange.com/questions/2951811/nearest-signed-permutation-matrix-to-a-given-matrix-a.
-
-    Args:
-        R (np.ndarray): The projection matrix to evaluate.
-
-    Returns:
-        float: The Frobenius norm to the closest signed permutation matrix.
-    """
-    # assert mutils.is_orthonormal(R, atol=5e-2)
-
-    # The cost matrix for the Hungarian algorithm
-    # In the general case, the first term would include the *squared L2 row norms*, however, in the orthogonal case,
-    # they are zero
-    # See the link above to see what the elements of this matrix corresponds to
-    # C = 1 - R**2 + (torch.abs(R) - 1) ** 2
-
-    # The general case
-    C = torch.linalg.norm(R, dim=1).reshape(-1, 1) ** 2 - R**2 + (R.abs() - 1) ** 2
-
-    M = optimize.linear_sum_assignment(C)  # M includes the rows and columns of where ones should go
-
-    P = torch.zeros(R.shape)
-    P[M] = 1  # Put ones into the entries where they should be
-    P *= torch.sign(R)  # Multiply with the sign to take into account the absolute values from the calculation of `C`
-
-    return torch.linalg.norm(R - P).item()
-
-
-def evaluate_with_linear_model(
-    X_train: torch.Tensor,
-    y_train: torch.Tensor,
-    X_val: torch.Tensor,
-    y_val: torch.Tensor,
-    mode: str = "class",
-    loss: str = "log_loss",
-    random_state: int = 1,
-) -> Dict[str, float]:
-
-    scaler = preprocessing.StandardScaler().fit(X_train)
-    X_train = scaler.transform(X_train)
-    X_val = scaler.transform(X_val)
-
-    # print(f"Proportion of the positive class: {sum(y_train) / len(y_train):.3f}.")
-    model = linear_model.SGDClassifier if mode == "class" else linear_model.SGDRegressor
-    clf = model(loss=loss, random_state=random_state, tol=1e-4, n_iter_no_change=15, alpha=1e-4, max_iter=25000).fit(
-        X_train, y_train
-    )
-
-    y_val_hat = clf.predict(X_val)
-    y_train_hat = clf.predict(X_train)
-
-    return (
-        {
-            "accuracy": round(metrics.accuracy_score(y_val, y_val_hat), 3),
-            "f1": round(metrics.f1_score(y_val, y_val_hat, average="macro"), 3),
-            "train_accuracy": round(metrics.accuracy_score(y_train, y_train_hat), 3),
-            "train_f1": round(metrics.f1_score(y_train, y_train_hat, average="macro"), 3),
-        }
-        if mode == "class"
-        else {
-            "r2": round(metrics.r2_score(y_val, y_val_hat), 3),
-            "mse": round(metrics.mean_squared_error(y_val, y_val_hat), 3),
-            "train_r2": round(metrics.r2_score(y_train, y_train_hat), 3),
-            "train_mse": round(metrics.mean_squared_error(y_train, y_train_hat), 3),
-        }
-    )

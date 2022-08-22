@@ -80,13 +80,13 @@ def function_test(
     y = transform(x)
 
     true_mi = skfs.mutual_info_regression(x.reshape((-1, 1)), y, n_neighbors=5)
-    mine_mi = get_mine_prediction(x, y, objective_type, epochs=n_epochs, batch_size=512)
+    mine_mi = get_mine_prediction(x, y, objective_type, epochs=n_epochs, batch_size=128, learning_rate=1e-3)
 
     return true_mi, mine_mi
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "transform",
     transforms,
@@ -97,7 +97,7 @@ def function_test(
 )
 @pytest.mark.parametrize(
     "n_epochs",
-    [1000],
+    [256],
 )
 def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: int, n_epochs: int) -> None:
     true_mi, mine_mi = function_test(transform, n_samples, n_epochs, mine.MINEObjectiveType.MINE)
@@ -105,10 +105,10 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "n_samples",
-    [16000],
+    [20000],
 )
 @pytest.mark.parametrize(
     "d",
@@ -116,9 +116,9 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
 )
 @pytest.mark.parametrize(
     "n_epochs",
-    [1000],
+    [512],
 )
-def test_multivairate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
+def test_multivariate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
     mu = np.zeros(d).astype(np.float32)
     c = rng.random(size=(d, d)).astype(np.float32)
     sigma = c.T @ c
@@ -133,14 +133,14 @@ def test_multivairate_gaussian(n_samples: int, d: int, n_epochs: int) -> None:
 
     true_mi = 1 / 2 * np.log(np.linalg.det(sigma_1) * np.linalg.det(sigma_2) / np.linalg.det(sigma))
     mine_mi = get_mine_prediction(
-        x, y, mine.MINEObjectiveType.MINE, epochs=n_epochs, learning_rate=1e-3, batch_size=512
+        x, y, mine.MINEObjectiveType.MINE, epochs=n_epochs, learning_rate=1e-3, batch_size=128
     )
 
     assert mine_mi == pytest.approx(true_mi, 0.1)
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "n_samples",
     [1000],
@@ -160,9 +160,9 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
     sigma = c.T @ c
 
     x = rng.multivariate_normal(mu, sigma, size=n_samples).astype(np.float32)
-    y = x + rng.normal(0, 1, size=x.shape)
+    y = x + rng.normal(0, 1, size=x.shape).astype(np.float32)
 
-    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=32)
+    data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=128)
 
     # construct the MINE estimator
     S = mine.StatisticsNetwork(
@@ -178,14 +178,14 @@ def test_loss_decrease(n_samples: int, d: int, objective_type: mine.MINEObjectiv
     model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-4)
 
     cb = cbs.MetricTracker()
-    trainer = Trainer(max_epochs=50, callbacks=[cb], enable_model_summary=False, enable_progress_bar=False)
+    trainer = Trainer(max_epochs=64, callbacks=[cb], enable_model_summary=False, enable_progress_bar=False)
     trainer.fit(model, datamodule=data)
 
-    for ii in [16, 32, 48]:
+    for ii in [36, 48, 58]:
         # assert that the mutual information estimate has increased on average compared to earlier epochs
-        assert np.mean(
-            [cb.epoch_outputs[ii - d]["validation_mutual_information_epoch"] for d in range(-2, 3)]
-        ) > np.mean([cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-2, 3)])
+        assert sum([cb.epoch_outputs[ii - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]) > sum(
+            [cb.epoch_outputs[ii - 12 - d]["validation_mutual_information_epoch"] for d in range(-4, 5)]
+        )
 
 
 # DONE
@@ -224,44 +224,44 @@ def test_value_changes() -> None:
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "objective_type",
     (mine.MINEObjectiveType.MINE, mine.MINEObjectiveType.MINE_BIASED, mine.MINEObjectiveType.F_DIV),
 )
 def test_lower_mi(objective_type: mine.MINEObjectiveType) -> None:
 
-    x = rng.uniform(-5, 5, size=(1000, 1)).astype(np.float32)
-    y_1 = transforms[0](x)
-    y_2 = y_1 + rng.normal(0, 1, size=y_1.shape).astype(np.float32)
+    x = rng.uniform(-5, 5, size=(4000, 1)).astype(np.float32)
+    y_1 = transforms[2](x)
+    y_2 = y_1 + rng.normal(0, 3, size=y_1.shape).astype(np.float32)
 
-    mine_mi_1 = get_mine_prediction(x, y_1, objective_type=objective_type, epochs=100, small=False)
-    mine_mi_2 = get_mine_prediction(x, y_2, objective_type=objective_type, epochs=100, small=False)
+    mine_mi_1 = get_mine_prediction(x, y_1, objective_type=objective_type, epochs=200, small=False)
+    mine_mi_2 = get_mine_prediction(x, y_2, objective_type=objective_type, epochs=200, small=False)
 
     assert mine_mi_1 > mine_mi_2
 
 
 # DONE
-@pytest.mark.skip("Too long to run")
+# @pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "objective_type",
     (mine.MINEObjectiveType.MINE, mine.MINEObjectiveType.MINE_BIASED, mine.MINEObjectiveType.F_DIV),
 )
 def test_worse_bound(objective_type: mine.MINEObjectiveType) -> None:
 
-    x = rng.uniform(-5, 5, size=(1000, 1)).astype(np.float32)
+    x = rng.uniform(-5, 5, size=(4000, 1)).astype(np.float32)
     y = transforms[0](x)
 
-    mine_mi_big = get_mine_prediction(x, y, objective_type=objective_type, epochs=100, small=False)
-    mine_mi_small = get_mine_prediction(x, y, objective_type=objective_type, epochs=100, small=True)
+    mine_mi_big = get_mine_prediction(x, y, objective_type=objective_type, epochs=64, small=False)
+    mine_mi_small = get_mine_prediction(x, y, objective_type=objective_type, epochs=64, small=True)
 
     assert mine_mi_small < mine_mi_big
 
 
 # DONE
-# @pytest.mark.skip("Too long to run")
+@pytest.mark.skip("Too long to run")
 class TestMINE:
-    @pytest.mark.parametrize("n_samples", (64,))
+    @pytest.mark.parametrize("n_samples", (256,))
     @pytest.mark.parametrize("d", (1, 2))
     @pytest.mark.parametrize(
         "objective_type",
@@ -273,7 +273,7 @@ class TestMINE:
         x = rng.uniform(-1, 1, size=(n_samples, 1)).astype(np.float32)
         y = transforms[0](x)
 
-        data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=16)
+        data = dm.GenericDataModule(X=torch.from_numpy(x), Y=torch.from_numpy(y), p_train=0.5, p_val=0.4, batch_size=32)
 
         # construct the MINE estimator
         S = mine.StatisticsNetwork(
@@ -286,7 +286,7 @@ class TestMINE:
             out_dim=16,
         )
 
-        model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-2)
+        model = mine.StandaloneMINE(T=S, kind=objective_type, alpha=0.01, learning_rate=1e-3)
 
         initial_layer_weights = []
         for layer in model.T.S:
@@ -317,5 +317,5 @@ class TestMINE:
         # Assert that the model call returns a *negative* value
         # (the negative of the MI estimate, which should be *positive*)
         with torch.no_grad():
-            for batch in data.test_dataloader():
-                assert model(batch) < 0
+            for x, z in data.test_dataloader():
+                assert model(x, z) < 0
