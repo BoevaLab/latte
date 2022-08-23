@@ -1,24 +1,35 @@
-# TODO (Anej): documentation
+"""
+Code for evaluating various general results and solutions used in `Latte`.
+"""
+
+from typing import List
+from collections import defaultdict
+from itertools import product
+
 import numpy as np
 import pandas as pd
+import torch
+
+from sklearn import feature_selection
 
 
-def evaluate_found_subspace(A: np.ndarray, A_hat: np.ndarray) -> pd.DataFrame:
+def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
     """
-    Evaluates the goodness of fit of the found subspace spanned by the k-frame `A_hat` compared to the ground-truth
-    subspace spanned by the k-frame `A`.
+    Evaluates the goodness of fit of the found subspace spanned by the estimate of the matrix `U_hat`
+    compared to the ground-truth one.
     Args:
-        A: The true k-frame
-        A_hat: The estimated k-frame
+        U: The ground-truth projection matrix
+        U_hat: The orthogonal basis of the estimated subspace
 
     Returns:
         A pandas dataframe containing two evaluation metrics:
-            - the norm of the difference between the projection matrices *in the original space* corresponding to the
-              k-frames
-            - the same norm normalised by the norm of the projection matrix of the true k-frame
+            - the norm of the difference between the projection matrices *in the original space*
+            - the same norm normalised by the norm of the ground-truth mixing matrix
     """
-    subspace_distance = np.linalg.norm(A @ A.T - A_hat @ A_hat.T)
-    normalised_subspace_distance = np.linalg.norm(A @ A.T - A_hat @ A_hat.T) / np.linalg.norm(A @ A.T)
+
+    # We look at the distance between the subspace and *its* projection onto the found subspace defined by `U_hat`
+    subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T)
+    normalised_subspace_distance = np.linalg.norm(U @ U.T - U_hat @ U_hat.T @ U @ U.T) / np.linalg.norm(U @ U.T)
     return pd.DataFrame(
         {
             "Value": {
@@ -29,26 +40,50 @@ def evaluate_found_subspace(A: np.ndarray, A_hat: np.ndarray) -> pd.DataFrame:
     )
 
 
-# TODO (Anej): This is a work-in-progress implementation
-def evaluate_alignment_to_axes(A_hat: np.ndarray) -> pd.DataFrame:
+def mixing_matrix_fit(A: np.ndarray, A_hat: np.ndarray) -> pd.DataFrame:
     """
-    Evaluates the degree to which a given projection matrix (its columns) is
-    aligned to the canonical basis of the latent space.
-    This can be used to evaluate how well the individual axes of the original latent space
-    capture factors on their own (and not as a component of a linear combination of the others);
-    in effect, this measures how well the factors are aligned with the original axes.
-
+    Evaluates the goodness of fit of the found mixing matrix `A_hat` compared to the ground-truth matrix `A`,
+    for example in probabilistic PCA.
     Args:
-        A_hat: The estimated projection matrix onto the linear subspace capturing the most information
-        about the factors of variation.
+        A: The true mixing matrix
+        A_hat: The estimated mixing matrix
 
     Returns:
-        A dataframe containing the results of the evaluation.
+        A pandas dataframe containing two evaluation metrics:
+            - the norm of the difference between the matrices
+            - the same norm normalised by the norm of the true mixing matrix
     """
-    alignments = {"Alignment": dict()}
-    for new_axis in range(A_hat.shape[1]):
-        # If some value in a column of the transformation matrix is close to 1 (in absolute value),
-        # it means that the new basis is well aligned to the original axis whose coefficient is close to 1
-        alignments["Alignment"][f"Axis {new_axis}"] = 1 - np.abs(A_hat[:, new_axis])
+    subspace_distance = np.linalg.norm(A - A_hat)
+    normalised_subspace_distance = np.linalg.norm(A - A_hat) / np.linalg.norm(A)
+    return pd.DataFrame(
+        {
+            "Value": {
+                "Difference between matrices": subspace_distance,
+                "Normalised difference between matrices": normalised_subspace_distance,
+            }
+        }
+    )
 
-    return pd.DataFrame(alignments)
+
+def axis_factor_mutual_information(Z: torch.Tensor, Y: torch.Tensor, factor_names: List[str]) -> pd.DataFrame:
+    """
+    Calculates the mutual information between all pairs of the provided axes in the data `Z` and the factor `Y`.
+    Args:
+        Z: A `N x d` matrix containing the data.
+        Y: A `N x f` matrix containing ground truth factors of variation for each data point.
+        factor_names: Human-understandable factor names for easier interpretation of the produced matrix.
+
+    Returns:
+        An `f x d` data frame containing the estimate of the mutual information between every axis in `Z` and every
+        factor in `Y`.
+    """
+
+    mis = defaultdict(lambda: defaultdict(float))
+    for ii, (factor_name, axis) in enumerate(product(factor_names, range(Z.shape[1]))):
+        mis[f"Axis {axis}"][factor_name] = feature_selection.mutual_info_regression(
+            Y[:, ii // Z.shape[1]].reshape((-1, 1)), Z[:, axis]
+        )[0]
+        # Since mutual_info_regression returns 1 value per feature (in this,
+        # we simulate 1 feature, we extract the first one
+
+    return pd.DataFrame(mis)

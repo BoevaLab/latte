@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import Literal, Union, Tuple  # pytype: disable=not-supported-yet
+from typing import List, Literal, Union, Tuple  # pytype: disable=not-supported-yet
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -74,10 +74,12 @@ def download(target: Union[str, pathlib.Path], _source: str, _checksum: str) -> 
         return
 
     # Otherwise, download the file
+    print(f"Downloading the file from {_source} into {target}.")
     req = requests.get(_source)
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, "wb") as f:
         f.write(req.content)
+    print("Download complete.")
 
     # Check if the file is ready now. Otherwise, raise an exception
     if not _check_file_ready(target, md5_checksum=_checksum, open_mode="rb"):
@@ -89,29 +91,40 @@ def download(target: Union[str, pathlib.Path], _source: str, _checksum: str) -> 
 
 
 def split(
-    X: TensorOrNDArray,
-    y: TensorOrNDArray,
+    D: List[TensorOrNDArray],
     p_train: float = 0.7,
     p_val: float = 0.1,
-    seed: Union[np.random.Generator, int] = 1,
-) -> Tuple[
-    Tuple[TensorOrNDArray, TensorOrNDArray],
-    Tuple[TensorOrNDArray, TensorOrNDArray],
-    Tuple[TensorOrNDArray, TensorOrNDArray],
-]:
-    """Split the data into train, validation, and test sets."""
-    n = len(X)
+    seed: RandomGenerator = 1,
+) -> List[Union[Tuple[TensorOrNDArray, TensorOrNDArray, TensorOrNDArray], Tuple[TensorOrNDArray, TensorOrNDArray]]]:
+    """
+    Split the list of datasets into train, validation, and test sets.
+    `D` should contain a list of datasets of the same length to be split.
+    Args:
+        D: A list of datasets to split.
+           This can for example be a list of two elements [X, Y], the observations and the targets, but it can also
+           contain more datasets.
+        p_train: The fraction of the samples to be in the training split.
+        p_val: The fraction of the samples to be in the validation or train split.
+               If p_train + p_val < 1, the datasets will be split into three splits; the train, validation, and the test
+               splits, with the last containing 1 - p_train - p_val fraction of the dataset.
+               Otherwise, if p_train + p_val = 1, the datasets are split into two splits; the train and the test one.
+        seed: The randomness generator.
+
+    Returns:
+        A list of tuples.
+        The list is of the same length as `D`, and each element is itself a tuple of two or three datasets
+    """
+    assert len(np.unique([len(x) for x in D])) == 1
+    assert p_train + p_val <= 1
+
     rng = np.random.default_rng(seed)
-    permutation = rng.permutation(n)
-    end_train, end_val = int(p_train * n), int((p_train + p_val) * n)
-    X_train, X_val, X_test = (
-        X[permutation][:end_train],
-        X[permutation][end_train:end_val],
-        X[permutation][end_val:],
-    )
-    y_train, y_val, y_test = (
-        y[permutation][:end_train],
-        y[permutation][end_train:end_val],
-        y[permutation][end_val:],
-    )
-    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+    N = len(D[0])
+    permutation = rng.permutation(N)
+    end_train, end_val = int(p_train * N), int((p_train + p_val) * N)
+
+    if end_val < N:
+        D_split = [(x[permutation][:end_train], x[permutation][end_train:end_val], x[permutation][end_val:]) for x in D]
+    else:
+        D_split = [(x[permutation][:end_train], x[permutation][end_train:]) for x in D]
+
+    return D_split

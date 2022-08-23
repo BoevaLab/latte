@@ -98,7 +98,7 @@ def _train_mine(
     data: dm.GenericMINEDataModule,
     trainer_kwargs: Dict[str, Any],
     log_to_wb: Optional[bool] = False,
-    wandb_run_name: Optional[str] = None,
+    wb_run_name: Optional[str] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float]]:
     """
     Trains a constructed MINE model and returns the testing result on the test split
@@ -107,13 +107,15 @@ def _train_mine(
         data: The prepared data in a GenericMINEDataModule data module
         trainer_kwargs: Arguments passed on to the utility functions to prepare the data
         log_to_wb: Whether to optionally log to W&B
-        wandb_run_name: The optional manually set name for the W&B project
+        wb_run_name: The optional manually set name for the W&B project
 
     Returns:
         The results of evaluating the model on the validation and the test splits of the data
     """
 
-    wandb_logger = WandbLogger(project="latte", name=wandb_run_name)
+    wandb_logger = None
+    if log_to_wb:
+        wandb_logger = WandbLogger(project="latte", name=wb_run_name)
 
     # If progress should be logged to W&B, pass the logger, else use the default (True)
     trainer = pl.Trainer(**trainer_kwargs, logger=wandb_logger if log_to_wb else True)
@@ -134,7 +136,7 @@ def estimate_mutual_information(
     Z: Union[torch.Tensor, Dict[str, torch.Tensor]],
     data_presplit: bool = False,
     log_to_wb: Optional[bool] = False,
-    wandb_run_name: Optional[str] = None,
+    wb_run_name: Optional[str] = None,
     datamodule_kwargs: Optional[Dict] = None,
     model_kwargs: Optional[Dict] = None,
     trainer_kwargs: Optional[Dict] = None,
@@ -156,7 +158,7 @@ def estimate_mutual_information(
                        This is useful for when the same data was used to train an unsupervised representations learning
                        model (e.g., a VAE), and you want to preserve that split.
         log_to_wb: Whether to optionally log to W&B
-        wandb_run_name: The optional manually set name for the W&B project
+        wb_run_name: The optional manually set name for the W&B project
         trainer_kwargs: Arguments passed on to the utility functions to prepare the data
         model_kwargs: Arguments passed on to the utility functions to construct the MINE model
         datamodule_kwargs: Arguments passed on to the utility functions to train the model
@@ -176,7 +178,11 @@ def estimate_mutual_information(
     )
 
     test_results, validation_results = _train_mine(
-        mine_model, data, trainer_kwargs if trainer_kwargs is not None else dict()
+        mine_model,
+        data,
+        trainer_kwargs if trainer_kwargs is not None else dict(),
+        log_to_wb=log_to_wb,
+        wb_run_name=wb_run_name,
     )
 
     mi_estimate = MutualInformationEstimationResult(
