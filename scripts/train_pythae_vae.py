@@ -1,11 +1,18 @@
 """
-This is a simple script that trains a `pythae` VAE model on one of the included datasets.
+This is a simple script that trains a `pythae` VAE model on one of the included datasets and saves the
+constructed representations for the entire dataset.
 It is intentionally simple and customised to the included datasets since our goal is not to obtain state-of-the-art
 VAE models but rather to analyse the representations which they construct with as few modification as possible
 
 It currently works for the `CelebA` and the `Shapes3D` dataset, but it can easily be extended to other datasets as well.
 
 Currently, this focuses on beta-VAE, beta-TCVAE and RHVAE models, but it can easily be modified to be more general.
+
+Notes:
+    For reproducibility purposes, the script assumes that the dataset is already split into the "train", "val",
+    and "test" splits.
+    The VAE will be trained on the train split and the validation split will be used for validation.
+    Representations will be saved for all splits individually.
 """
 from typing import Optional, Tuple, Any
 import dataclasses
@@ -24,7 +31,7 @@ from pythae.trainers import BaseTrainerConfig
 from pythae.models.nn.benchmarks.celeba.resnets import Encoder_ResNet_VAE_CELEBA, Decoder_ResNet_AE_CELEBA
 from pythae.models.nn.benchmarks.celeba.convnets import Encoder_Conv_VAE_CELEBA, Decoder_Conv_AE_CELEBA
 
-from latte.dataset import utils as dsutils, shapes3d
+from latte.models.vae import utils as vaeutils
 from latte.modules.callbacks import TensorboardCallback
 import latte.hydra_utils as hy
 
@@ -38,13 +45,12 @@ class VAETrainConfig:
     Members:
         dataset: The dataset to train on.
                  Currently, this can be "CelebA" or "Shapes3D"
-        dataset_path: The path to the dataset file.
+        dataset_paths: The paths to the dataset split files.
+                       It should contain the paths to the train, validation, and test splits in that order.
         vae_flavour: The flavour of the VAE to train.
-                     Currently, this can be "BetaVAE" or "RHVAE".
+                     Currently, this can be "BetaVAE", "BetaTCVAE" or "RHVAE".
         network_type: If there are multiple implementations of the VAE components available, this chooses one.
         seed: The seed for the training.
-        p_train: The fraction of the data to use for training.
-        p_val: The fraction of the data to use for validation.
         latent_size: The dimensionality of the latent space
         beta: The beta value for the BetaVAE
         model_path: The name of the directory to save the trained checkpoint to.
@@ -58,12 +64,10 @@ class VAETrainConfig:
     """
 
     dataset: str
-    dataset_path: str
+    dataset_paths: Tuple[str, str, str]
     vae_flavour: str = "BetaVAE"
     network_type: str = "resnet"
     seed: int = 42
-    p_train: float = 0.8
-    p_val: float = 0.1
     latent_size: int = 10
     beta: float = 1
     model_path: str = "vae_train"
@@ -75,30 +79,28 @@ class VAETrainConfig:
     no_cuda: bool = False
 
 
-def get_dataset(dataset: str, path: str) -> torch.Tensor:
+def get_dataset(dataset: str, paths: Tuple[str, str, str]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Loads the data (the observation only) for the specified dataset.
     Args:
         dataset: The dataset to load.
-        path: The path to the data file.
+        paths: The paths to the data train, val, and test datasets in that order.
 
     Returns:
         The data in the form of a Tensor.
     """
     print("Loading the dataset.")
-    if dataset == "dsprites":
-        ...
-    elif dataset == "shapes3d":
-        dataset = shapes3d.load_shapes3d(filepath=path)
-        X = dataset.imgs[:]
-        del dataset
-        X = torch.from_numpy(np.transpose(X, (0, 3, 1, 2)).astype(np.float32) / 255)
-    elif dataset == "celeba":
-        X = torch.from_numpy(np.load(path))
-        X /= 255
+    X_train = torch.from_numpy(np.load(paths[0]))
+    X_val = torch.from_numpy(np.load(paths[0]))
+    X_test = torch.from_numpy(np.load(paths[1]))
+
+    if dataset in ["celeba", "shapes3d"]:
+        X_train = X_train.type(torch.FloatTensor) / 255
+        X_val = X_val.type(torch.FloatTensor) / 255
+        X_test = X_test.type(torch.FloatTensor) / 255
 
     print("Dataset loaded.")
-    return X
+    return X_train, X_val, X_test
 
 
 def _get_model_classes(dataset: str, network_type: Optional[str] = None) -> Tuple[Any, Any]:
@@ -140,7 +142,7 @@ def evaluate_trained_model(model: VAE, X_test: torch.Tensor, batch_size: int, de
 
     print("Evaluating the model.")
 
-    model_outputs = dict(reconstruction_losses=[], reg_losses=[], losses=[])
+    model_outputs = dict(reconstruction_losses=0.0, reg_losses=0.0, losses=0.0)
 
     # Run the entire dataset `X_test` through the model
     model.eval()
@@ -148,16 +150,16 @@ def evaluate_trained_model(model: VAE, X_test: torch.Tensor, batch_size: int, de
         for ix in trange(0, len(X_test), batch_size):
             x = X_test[ix : ix + batch_size].to(device)
             y = model({"data": x})
-            model_outputs["reconstruction_losses"].append(y.reconstruction_loss.detach().cpu().numpy())
-            model_outputs["reg_losses"].append(y.reg_loss.detach().cpu().numpy())
-            model_outputs["losses"].append(y.loss.detach().cpu().numpy())
+            model_outputs["reconstruction_losses"] += y.reconstruction_loss.detach().sum().cpu().numpy()
+            model_outputs["reg_losses"] += y.reg_loss.detach().sum().cpu().numpy()
+            model_outputs["losses"] += y.loss.detach().sum().cpu().numpy()
     model.train()
 
     results = {
         "Value": {
-            "Mean reconstruction loss": np.mean(model_outputs["reconstruction_losses"]),
-            "Mean KL loss": np.mean(model_outputs["reg_losses"]),
-            "ELBO": np.sum(model_outputs["losses"]),
+            "Mean reconstruction loss": model_outputs["reconstruction_losses"] / len(X_test),
+            "Mean KL loss": model_outputs["reg_losses"] / len(X_test),
+            "ELBO": model_outputs["losses"],
         }
     }
 
@@ -252,18 +254,27 @@ def _get_model(cfg: VAETrainConfig) -> VAE:
     )
 
 
+def _save_representations(
+    trained_model: VAE, X_train: torch.Tensor, X_val: torch.Tensor, X_test: torch.Tensor, cfg: VAETrainConfig
+) -> None:
+    base_fname = (
+        f"{cfg.dataset}_{cfg.vae_flavour}_b{cfg.beta}"
+        f"_dim{cfg.latent_size}_l{cfg.loss}_m{cfg.network_type}_s{cfg.seed}"
+    )
+    for X, split in zip([X_train, X_val, X_test], ["train", "val", "test"]):
+        vaeutils.save_representations(trained_model, X, f"{base_fname}_{split}.pt", 4096)
+
+
 @hy.main
 def main(cfg: VAETrainConfig):
     assert cfg.dataset in ["dsprites", "celeba", "shapes3d"], f"Dataset {cfg.dataset} is not supported."
-    assert cfg.dataset_path is not None
+    assert cfg.dataset_paths is not None
     assert cfg.vae_flavour in ["BetaVAE", "RHVAE", "BetaTCVAE"]
 
     device = "cpu" if cfg.no_cuda else "cuda"
 
     # Load and split the data
-    X = get_dataset(cfg.dataset, cfg.dataset_path)
-    X_train, X_val, X_test = dsutils.split(D=[X], p_train=cfg.p_train, p_val=cfg.p_val, seed=cfg.seed)[0]
-    del X  # Save memory
+    X_train, X_val, X_test = get_dataset(cfg.dataset, cfg.dataset_paths)
 
     # Construct the model
     model = _get_model(cfg)
@@ -288,13 +299,16 @@ def main(cfg: VAETrainConfig):
 
     # Load the best model according to the validation data
     last_training = sorted(os.listdir(cfg.model_path))[-1]
-    trained_model = AutoModel.load_from_folder(os.path.join(cfg.model_path, last_training, "final_model"))
+    trained_model = AutoModel.load_from_folder(os.path.join(cfg.model_path, last_training, "final_model")).to(device)
 
     # Evaluate the final model
-    evaluation_results = evaluate_trained_model(trained_model, X_test, batch_size=2048, device=device)
+    evaluation_results = evaluate_trained_model(trained_model, X_test, batch_size=4096, device=device)
     print(">>>>>>>>>>>>>>> Evaluation results <<<<<<<<<<<<<<")
     print(evaluation_results)
     evaluation_results.to_csv(f"trained_vae_evaluation_results_{cfg.dataset}.csv")
+
+    print("Saving the representations.")
+    _save_representations(trained_model, X_train, X_val, X_test, cfg)
 
     print("DONE!")
 

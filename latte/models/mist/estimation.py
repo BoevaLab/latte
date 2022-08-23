@@ -150,8 +150,8 @@ def _construct_mist(
     # It allows the function to be used to load the best checkpoint model based on the validation data.
     if checkpoint_path is None:
         model = mist.MIST(
-            n=x_size,
-            d=subspace_size,
+            n=(x_size, z_max_size),
+            d=(subspace_size, z_max_size),
             subspace_fit=subspace_fit,
             mine_args=mine_args,
             club_args=club_args,
@@ -167,8 +167,8 @@ def _construct_mist(
     else:
         model = mist.MIST.load_from_checkpoint(
             checkpoint_path=checkpoint_path,
-            n=x_size,
-            d=subspace_size,
+            n=(x_size, z_max_size),
+            d=(subspace_size, z_max_size),
             subspace_fit=subspace_fit,
             mine_args=mine_args,
             club_args=club_args,
@@ -288,13 +288,18 @@ def find_subspace(
     )
 
     # Extract the found projection matrix
-    A_hat = best_model.projection_layer.A.detach().cpu()
+    A_hat_x = best_model.projection_layer_x.A.detach().cpu()
+    A_hat_z = best_model.projection_layer_z.A.detach().cpu()
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
-    assert mutils.is_orthonormal(A_hat, atol=2e-3 + 1e-4 * A_hat.shape[1]), (
-        f"A_hat.T @ A_hat = {A_hat.T @ A_hat}, "
-        f"distance from orthogonal = {torch.linalg.norm(A_hat.T @ A_hat - torch.eye(A_hat.shape[1]))}"
+    assert mutils.is_orthonormal(A_hat_x, atol=5e-3 + 1e-4 * A_hat_x.shape[1]), (
+        f"A_hat_x.T @ A_hat_x = {A_hat_x.T @ A_hat_x}, "
+        f"distance from orthogonal = {torch.linalg.norm(A_hat_x.T @ A_hat_x - torch.eye(A_hat_x.shape[1]))}"
+    )
+    assert mutils.is_orthonormal(A_hat_z, atol=5e-3 + 1e-4 * A_hat_z.shape[1]), (
+        f"A_hat_z.T @ A_hat_z = {A_hat_z.T @ A_hat_z}, "
+        f"distance from orthogonal = {torch.linalg.norm(A_hat_z.T @ A_hat_z - torch.eye(A_hat_z.shape[1]))}"
     )
 
     # Construct the result
@@ -302,7 +307,7 @@ def find_subspace(
         mutual_information=training_results["test_results"]["test_mutual_information_mine_epoch"],
         loss=training_results["test_results"]["test_loss_epoch"],
         estimator=best_model,
-        A=A_hat,
+        A=A_hat_x,
     )
 
     return mi_estimate

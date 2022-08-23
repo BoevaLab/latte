@@ -30,10 +30,10 @@ from latte.utils import ksg_estimator
 class MIST(pl.LightningModule):
     def __init__(
         self,
-        n: int,
+        n: Tuple[int, int],
         mine_args: Dict[str, Any],
         subspace_fit: bool = True,
-        d: Optional[int] = None,
+        d: Optional[Tuple[int, int]] = None,
         gamma: float = 1.0,
         club_args: Optional[Dict[str, Any]] = None,
         n_density_updates: int = 0,
@@ -65,10 +65,10 @@ class MIST(pl.LightningModule):
         The model also continually assesses the mutual information between the distributions with an implementation of
         the non-parametric KSG estimator.
         Args:
-            n: The dimensionality of the original representation space.
+            n: The dimensionality of the original samples of the first and second distributions.
             subspace_fit: Whether to find the optimal `d`-dimensional subspace or just estimate the mutual information
                           on the entire space.
-            d: The optional dimensionality of the subspace to project onto.
+            d: The optional dimensionality of the subspace to project onto for the first and second distributions.
                Can be None if just estimating the mutual information between two distributions.
             mine_args: The args for MINE.
             club_args: The args for CLUB.
@@ -95,17 +95,20 @@ class MIST(pl.LightningModule):
         assert subspace_fit or gamma == 1.0  # When estimating the MI between two distribution, we only use `MINE`
         super().__init__()
 
+        # If subspace fitting is not selected, project onto the same space by default
+        # (corresponds to a "rotation"/orthogonal transformation of the space)
+        if not subspace_fit:
+            d = n
+
         # Sets the flag of whether to do manifold optimisation (to find the optimal subspace)
-        self.manifold_optimisation = subspace_fit
         self.gamma = gamma
         self.minimise_mi = self.gamma < 1.0  # Whether to also minimise MI w.r.t. some factors (depends on gamma)
+
         self.mine = MINE(**mine_args) if self.gamma > 0 else None
         self.club = CLUB(**club_args) if self.minimise_mi else None
-        # TODO (Anej): Is this fine like this or should the projection layer just not be used
-        #  if manifold_optimisation=False?
-        self.projection_layer = ManifoldProjectionLayer(
-            n, d, init=None if self.manifold_optimisation else torch.eye(n), stiefel_manifold=self.manifold_optimisation
-        )
+        self.projection_layer_x = ManifoldProjectionLayer(n[0], d[0])
+        self.projection_layer_z = ManifoldProjectionLayer(n[1], d[1])
+
         self.n_density_updates = n_density_updates
         self.mine_learning_rate = mine_learning_rate
         self.club_learning_rate = club_learning_rate
@@ -135,7 +138,8 @@ class MIST(pl.LightningModule):
             The value of the objetive of the model.
         """
 
-        x = self.projection_layer(x)
+        x = self.projection_layer_x(x)
+        z_max = self.projection_layer_z(z_max)
 
         # Negative of the estimate of the mutual information by MINE (the lower bound)
         mine_loss = self.mine(x, z_max) if self.mine is not None else 0
@@ -153,12 +157,10 @@ class MIST(pl.LightningModule):
         """
 
         # Depending on whether mutual information is also being minimised or not, load 2 or 3 optimizers of the model
-        if self.minimise_mi and self.manifold_optimisation:
+        if self.minimise_mi:
             mine_optimizer, club_density_optimizer, manifold_optimizer = self.optimizers()
-        elif self.manifold_optimisation:
-            mine_optimizer, manifold_optimizer = self.optimizers()
         else:
-            mine_optimizer = self.optimizers()
+            mine_optimizer, manifold_optimizer = self.optimizers()
 
         x, z_max, z_min = batch  # Samples from the first, second, and the third distribution
 
@@ -166,7 +168,7 @@ class MIST(pl.LightningModule):
         # by maximising the log-likelihood of the data
         # This density estimator is used to estimate the mutual information
         for _ in range(self.n_density_updates):
-            density_loss = -self.club.log_likelihood(self.projection_layer(x), z_min)
+            density_loss = -self.club.log_likelihood(self.projection_layer_x(x), z_min)
             club_density_optimizer.zero_grad()
             self.manual_backward(density_loss)
             club_density_optimizer.step()
@@ -176,12 +178,10 @@ class MIST(pl.LightningModule):
         # We update the parameters of the MINE model and the projection matrix at the same time since they optimise the
         # same objective - the mutual information directly
         mine_optimizer.zero_grad()
-        if self.manifold_optimisation:
-            manifold_optimizer.zero_grad()
+        manifold_optimizer.zero_grad()
         self.manual_backward(loss)
         mine_optimizer.step()
-        if self.manifold_optimisation:
-            manifold_optimizer.step()
+        manifold_optimizer.step()
 
         # Log various aspects of the estimate separately
         self.log("train_mutual_information_mine", mine_mi, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -283,7 +283,7 @@ class MIST(pl.LightningModule):
         x, z_max, z_min = batch  # Samples from the first, second, and the third distribution
 
         with torch.no_grad():
-            x_projected = self.projection_layer(x)
+            x_projected = self.projection_layer_x(x)
             loss, mine_mi, club_mi = self(x, z_max, z_min)
 
         self.log_on_evaluation_step(step, loss, mine_mi, club_mi, x_projected, z_max, z_min)
@@ -307,14 +307,12 @@ class MIST(pl.LightningModule):
 
         validation_loss = torch.stack([o["validation_loss"] for o in outputs]).mean()
 
-        if self.minimise_mi and self.manifold_optimisation:
+        if self.minimise_mi:
             mine_scheduler, club_density_scheduler, manifold_scheduler = self.lr_schedulers()
             club_density_scheduler.step(validation_loss)
-        elif self.manifold_optimisation:
+        else:
             mine_scheduler, manifold_scheduler = self.lr_schedulers()
             manifold_scheduler.step(validation_loss)
-        else:
-            mine_scheduler = self.lr_schedulers()
 
         mine_scheduler.step(validation_loss)
 
@@ -341,6 +339,22 @@ class MIST(pl.LightningModule):
             min_lr=1e-8,
         )
 
+        # A geoopt optimizer for optimization over the Stiefel manifold
+        # It is instantiated only if search of the optimal subspace should be performed
+        manifold_optimizer = geoopt.optim.RiemannianAdam(
+            params=[self.projection_layer_x.A, self.projection_layer_z.A], lr=self.manifold_learning_rate
+        )
+        manifold_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            manifold_optimizer,
+            mode="min",
+            factor=0.2,
+            patience=self.lr_scheduler_patience,
+            threshold=self.lr_scheduler_min_delta,
+            threshold_mode="abs",
+            verbose=self.verbose,
+            min_lr=1e-6,
+        )
+
         if self.minimise_mi:
             club_density_optimizer = torch.optim.Adam(list(self.club.parameters()), lr=self.club_learning_rate)
             club_density_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -353,30 +367,12 @@ class MIST(pl.LightningModule):
                 verbose=self.verbose,
                 min_lr=1e-6,
             )
-        if self.manifold_optimisation:
-            # A geoopt optimizer for optimization over the Stiefel manifold
-            # It is instantiated only if search of the optimal subspace should be performed
-            manifold_optimizer = geoopt.optim.RiemannianAdam(
-                params=[self.projection_layer.A], lr=self.manifold_learning_rate
-            )
-            manifold_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                manifold_optimizer,
-                mode="min",
-                factor=0.2,
-                patience=self.lr_scheduler_patience,
-                threshold=self.lr_scheduler_min_delta,
-                threshold_mode="abs",
-                verbose=self.verbose,
-                min_lr=1e-6,
-            )
 
-        if self.minimise_mi and self.manifold_optimisation:
             return [mine_optimizer, club_density_optimizer, manifold_optimizer], [
                 mine_scheduler,
                 club_density_scheduler,
                 manifold_scheduler,
             ]
-        elif self.manifold_optimisation:
-            return [mine_optimizer, manifold_optimizer], [mine_scheduler, manifold_scheduler]
         else:
-            return [mine_optimizer], [mine_scheduler]
+
+            return [mine_optimizer, manifold_optimizer], [mine_scheduler, manifold_scheduler]
