@@ -21,6 +21,7 @@ class RLACEResult:
 def find_subspace(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: float = 0.8) -> RLACEResult:
     """
     Main function of the module.
+    `rLACE` version of the `fit_subspace` function from `MIST` evaluation.
 
     Args:
         X: Samples of the first distribution.
@@ -42,10 +43,6 @@ def find_subspace(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
-    # assert mutils.is_orthonormal(P_hat_x, atol=5e-3 + 1e-4 * P_hat_x.shape[1]), (
-    #     f"P_hat_x.T @ P_hat_x = {P_hat_x.T @ P_hat_x}, "
-    #     f"distance from orthogonal = {torch.linalg.norm(P_hat_x.T @ P_hat_x - torch.eye(P_hat_x.shape[1]))}"
-    # )
     assert mutils.is_orthonormal(A_hat_x, atol=5e-3 + 1e-4 * A_hat_x.shape[1]), (
         f"A_hat_x.T @ A_hat_x = {A_hat_x.T @ A_hat_x}, "
         f"distance from orthogonal = {torch.linalg.norm(A_hat_x.T @ A_hat_x - torch.eye(A_hat_x.shape[1]))}"
