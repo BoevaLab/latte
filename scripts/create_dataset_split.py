@@ -1,3 +1,4 @@
+from typing import Tuple
 import dataclasses
 from os import path
 
@@ -18,7 +19,7 @@ class DatasetSplitConfig:
     p_val: float = 0.1
 
 
-def get_dataset(dataset: str, path: str) -> np.ndarray:
+def get_dataset(dataset: str, path: str) -> Tuple[np.ndarray, np.ndarray]:
     """
     Loads the data (the observation only) for the specified dataset.
     Args:
@@ -33,25 +34,29 @@ def get_dataset(dataset: str, path: str) -> np.ndarray:
     elif dataset == "shapes3d":
         dataset = shapes3d.load_shapes3d(filepath=path)
         X = dataset.imgs[:]
+        Y = dataset.latents_values[:]
         del dataset
         X = np.transpose(X, (0, 3, 1, 2))
 
     print("Dataset loaded.")
-    return X
+    return X, Y
 
 
 @hy.main
 def main(cfg: DatasetSplitConfig):
-    X = get_dataset(cfg.dataset, cfg.dataset_path)
+    X, Y = get_dataset(cfg.dataset, cfg.dataset_path)
     print("Splitting dataset.")
-    X_train, X_val, X_test = dsutils.split(D=[X], p_train=cfg.p_train, p_val=cfg.p_val, seed=cfg.seed)[0]
+    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = dsutils.split(
+        D=[X, Y], p_train=cfg.p_train, p_val=cfg.p_val, seed=cfg.seed
+    )
     print("Dataset split.")
     del X  # Save memory
     print("X deleted.")
 
     print("Saving...")
-    for X, split in zip([X_train, X_val, X_test], ["train", "val", "test"]):
-        np.save(path.join(cfg.save_dir, f"{cfg.dataset}_{split}_split"), X)
+    for X, Y, split in zip([X_train, X_val, X_test], [Y_train, Y_val, Y_test], ["train", "val", "test"]):
+        np.save(path.join(cfg.save_dir, f"{cfg.dataset}_images_{split}_split"), X)
+        np.save(path.join(cfg.save_dir, f"{cfg.dataset}_attributes_{split}_split"), Y)
 
     print("DONE.")
 

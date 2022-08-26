@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 from latte.models.mine import mine
 from latte.models.mist import mist
@@ -187,6 +187,7 @@ def _train_mist(
     model: mist.MIST,
     data: dm.MISTDataModule,
     trainer_kwargs: Dict[str, Any],
+    early_stopping_kwargs: Dict[str, Any],
     log_to_wb: bool = False,
     wb_run_name: Optional[str] = None,
 ) -> Dict[str, Union[str, Dict[str, float]]]:
@@ -203,8 +204,16 @@ def _train_mist(
         wandb_logger = WandbLogger(project="latte", name=wb_run_name)
 
     callbacks = trainer_kwargs.get("callbacks", [])
+    early_stopping_callback = EarlyStopping(
+        monitor="validation_mutual_information_mine",
+        min_delta=early_stopping_kwargs["min_delta"],
+        patience=early_stopping_kwargs["patience"],
+        verbose=early_stopping_kwargs["verbose"],
+        mode="max",
+    )
     checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="validation_loss", mode="min")
     callbacks.append(checkpoint_callback)
+    callbacks.append(early_stopping_callback)
     trainer_kwargs["callbacks"] = callbacks
 
     # If progress should be logged to W&B, pass the logger, else use the default (True)
@@ -236,6 +245,7 @@ def find_subspace(
     datamodule_kwargs: Optional[Dict] = None,
     model_kwargs: Optional[Dict] = None,
     trainer_kwargs: Optional[Dict] = None,
+    early_stopping_kwargs: Optional[Dict[str, Any]] = None,
 ) -> MISTResult:
     """
     Main function of the module.
@@ -256,6 +266,7 @@ def find_subspace(
         datamodule_kwargs: Arguments passed on to the utility functions to prepare the data.
         model_kwargs: Arguments passed on to the utility functions to construct the MIST model.
         trainer_kwargs: Arguments passed on to the utility functions to train the model.
+        early_stopping_kwargs: A dictionary of kwargs for the early stopping callback for training the `MIST` model.
 
     Returns:
         A MISTResult object containing the results of the estimation.
@@ -277,6 +288,9 @@ def find_subspace(
         model,
         data,
         trainer_kwargs if trainer_kwargs is not None else dict(),
+        early_stopping_kwargs
+        if early_stopping_kwargs is not None
+        else {"min_delta": 1e-3, "patience": 16, "verbose": False},
         log_to_wb=log_to_wb,
         wb_run_name=wb_run_name,
     )
