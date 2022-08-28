@@ -212,7 +212,7 @@ class SplitMISTDataModule(MISTDataModule):
             kwargs: kwargs to be passed to BaseDataModule
         """
 
-        super(BaseDataModule, self).__init__(**kwargs)
+        super(MISTDataModule, self).__init__(**kwargs)
         self.X_train = X["train"]
         self.X_val = X["val"]
         self.X_test = X["test"]

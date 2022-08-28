@@ -336,7 +336,7 @@ class MIST(pl.LightningModule):
             threshold=self.lr_scheduler_min_delta,
             threshold_mode="abs",
             verbose=self.verbose,
-            min_lr=1e-8,
+            min_lr=1e-6,
         )
 
         # A geoopt optimizer for optimization over the Stiefel manifold
@@ -347,7 +347,7 @@ class MIST(pl.LightningModule):
         manifold_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             manifold_optimizer,
             mode="min",
-            factor=0.2,
+            factor=0.25,
             patience=self.lr_scheduler_patience,
             threshold=self.lr_scheduler_min_delta,
             threshold_mode="abs",
