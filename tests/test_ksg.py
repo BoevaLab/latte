@@ -29,10 +29,16 @@ def test_digamma():
         assert ksg._DIGAMMA(k + 1) == pytest.approx(ksg._DIGAMMA(k) + 1 / k, rel=0.01)
 
 
+# Distance-matrix-based estimators
+# For now the second one doesn't work
+# ESTIMATORS = [ksg.estimate_mi_ksg1, ksg.estimate_mi_ksg2]
+ESTIMATORS = [ksg.estimate_mi_ksg1]
+
+
 @pytest.mark.parametrize("n_points", [1000])
 @pytest.mark.parametrize("k", [5, 10])
 @pytest.mark.parametrize("correlation", [0.0, 0.6, 0.8, 0.9])
-@pytest.mark.parametrize("func", [ksg.estimate_mi_ksg1, ksg.estimate_mi_ksg2])
+@pytest.mark.parametrize("func", ESTIMATORS)
 def test_estimate_mi_ksg_known(n_points: int, k: int, correlation: float, func: Callable) -> None:
     covariance = np.array(
         [
@@ -59,7 +65,7 @@ def test_estimate_mi_ksg_known(n_points: int, k: int, correlation: float, func: 
 @pytest.mark.parametrize("n_points", [500, 1000])
 @pytest.mark.parametrize("k", [5, 10])
 @pytest.mark.parametrize("dims", [(1, 1), (1, 2), (2, 2)])
-@pytest.mark.parametrize("func", [ksg.estimate_mi_ksg1, ksg.estimate_mi_ksg2])
+@pytest.mark.parametrize("func", ESTIMATORS)
 def test_estimate_mi_ksg(n_points: int, k: int, dims: Tuple[int, int], func: Callable) -> None:
     dim_x, dim_y = dims
 
@@ -79,3 +85,29 @@ def test_estimate_mi_ksg(n_points: int, k: int, dims: Tuple[int, int], func: Cal
 
     # Approximate the MI to 10% and take correction for very small values
     assert estimated_mi == pytest.approx(true_mi, rel=0.1, abs=0.02)
+
+
+@pytest.mark.parametrize("n_points", [500])
+@pytest.mark.parametrize("correlation", [0.0, 0.6, 0.8, 0.9])
+def test_estimate_mi_ksg_known_from_points(
+    n_points: int, correlation: float, neighborhoods: Tuple[int, ...] = (5, 10)
+) -> None:
+    covariance = np.array(
+        [
+            [1.0, correlation],
+            [correlation, 1.0],
+        ]
+    )
+    distribution = ksg.SplitMultinormal(
+        mean=np.zeros(2),
+        covariance=covariance,
+        split=1,
+        rng=0,
+    )
+    points_x, points_y = distribution.sample_joint(n_points)
+
+    true_mi = distribution.mutual_information()
+    estimates = ksg.estimate_mi_ksg(points_x, points_y, neighborhoods=neighborhoods)
+
+    for k in neighborhoods:
+        assert estimates[k] == pytest.approx(true_mi, rel=0.08, abs=0.03)

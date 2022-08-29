@@ -3,14 +3,76 @@ proposed in
     A. Kraskov, H. Stoegbauer, P. Grassberger, Estimating Mutual Information, 2008
       https://arxiv.org/abs/cond-mat/0305641
 """
-from typing import Tuple
+from typing import Dict, Tuple, Sequence
 
 import numpy as np
 from numpy.typing import ArrayLike
 
 from scipy import special
+from sklearn import metrics
+from sklearn import preprocessing
+
 
 _DIGAMMA = special.digamma
+
+
+def estimate_mi_ksg(
+    x: ArrayLike,
+    y: ArrayLike,
+    neighborhoods: Sequence[int] = (5, 10),
+    standardize: bool = True,
+    n_jobs: int = 1,
+) -> Dict[int, float]:
+    """Estimates mutual information.
+
+    Args:
+        x: shape (n_points, x_dim)
+        y: shape (n_points, y_dim)
+        neighborhoods: sequence of positive integers, specifying the size of neighborhood for MI calculation
+        standardize: whether to standardize the data before MI calculation, by default true
+        n_jobs: controls the number of jobs to be used. Use -1 to use all possible CPUs
+            Currently it is not used. If we discover that this function is too slow, we'll use joblib
+              with threads, to limit the memory usage.
+
+    Returns:
+        dictionary, for each neighborhood size in `neighborhoods` returns MI estimate
+    """
+    x, y = np.array(x), np.array(y)
+
+    if len(x) != len(y):
+        raise ValueError(f"Arrays have different length: {len(x)} != {len(y)}.")
+    if min(neighborhoods) < 1:
+        raise ValueError("Each neighborhood must be at least 1.")
+
+    if standardize:
+        x = preprocessing.StandardScaler(copy=False).fit_transform(x)
+        y = preprocessing.StandardScaler(copy=False).fit_transform(y)
+
+    digammas_dict = {k: [] for k in neighborhoods}
+
+    n_points = len(x)
+    for index in range(n_points):
+        # Distances from x[index] to all the points:
+        distances_x = metrics.pairwise_distances(x[None, index], x)[0, :]
+        distances_y = metrics.pairwise_distances(y[None, index], y)[0, :]
+
+        distances_z = np.maximum(distances_x, distances_y)
+
+        for k in neighborhoods:
+            kth_neighbour = _find_kth_neighbour(distances_z, k)
+            distance = distances_z[kth_neighbour]
+
+            # Don't include the `i`th point itself in n_x and n_y
+            n_x = (distances_x < distance).sum() - 1
+            n_y = (distances_y < distance).sum() - 1
+
+            digammas_per_point = _DIGAMMA(n_x + 1) + _DIGAMMA(n_y + 1)
+            digammas_dict[k].append(digammas_per_point)
+
+    mi_dict = {
+        k: max(0.0, _DIGAMMA(k) - np.mean(digammas) + _DIGAMMA(n_points)) for k, digammas in digammas_dict.items()
+    }
+    return mi_dict
 
 
 def _find_kth_neighbour(distances: np.ndarray, k: int) -> int:
@@ -106,6 +168,8 @@ def estimate_mi_ksg2(distance_x: ArrayLike, distance_y: ArrayLike, k: int = 10, 
     TODO(Pawel):
         Currently it gives wrong estimates. Debug.
     """
+    raise NotImplementedError("This function seems to return wrong estimates. To be fixed.")
+
     _validate_k(k)
     x, y = _prepare_matrices(distance_x, distance_y, normalize=normalize)
     n_points = len(x)
