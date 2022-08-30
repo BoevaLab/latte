@@ -12,8 +12,8 @@ from latte.utils import ksg_estimator
 
 @dataclasses.dataclass
 class RLACEResult:
-    A: torch.Tensor
-    E: torch.Tensor
+    A_1: torch.Tensor
+    E_1: torch.Tensor
     mutual_information: float
     complement_mutual_information: float
 
@@ -26,6 +26,7 @@ def find_subspace(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_
     Args:
         X: Samples of the first distribution.
         Z: Corresponding samples of the distribution in regard to which the mutual information should be maximised.
+        rlace_params: Parameters for training the `rLACE` model.
         p_train: Proportion of the training data.
 
     Returns:
@@ -56,8 +57,8 @@ def find_subspace(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_
         complement_mutual_information=ksg_estimator.mutual_information(
             [X_test_projected_E.numpy(), Z_test.reshape(-1, 1)], k=3
         ),
-        A=A_hat_x,
-        E=E_hat_x,
+        A_1=A_hat_x,
+        E_1=E_hat_x,
     )
 
     return mi_estimate

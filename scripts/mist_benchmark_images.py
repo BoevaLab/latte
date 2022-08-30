@@ -648,7 +648,7 @@ def _find_subspace(
         Z=Z,  # just standardize here... (you can even do it with a new StandardScaler)
         Y=Y,
         predictor_train_ixs=predictor_train_ixs,
-        A_hat=subspace_result.A.to(device),
+        A_hat=subspace_result.A_1.to(device),
         model=model,
         method=method,
         factors=factors_of_interest,
@@ -673,7 +673,7 @@ def _find_subspace(
         Z=Z,
         Y=Y,
         predictor_train_ixs=predictor_train_ixs,
-        A_hat=(torch.eye(model.model_config.latent_dim) - subspace_result.A @ subspace_result.A.T).to(device),
+        A_hat=subspace_result.E_1.to(device),
         model=model,
         method=method,
         factors=factors_of_interest,

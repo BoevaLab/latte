@@ -6,8 +6,6 @@ VAE models but rather to analyse the representations which they construct with a
 
 It currently works for the `CelebA` and the `Shapes3D` dataset, but it can easily be extended to other datasets as well.
 
-Currently, this focuses on beta-VAE, beta-TCVAE and RHVAE models, but it can easily be modified to be more general.
-
 Notes:
     For reproducibility purposes, the script assumes that the dataset is already split into the "train", "val",
     and "test" splits.
@@ -25,9 +23,30 @@ import pandas as pd
 from tqdm import trange
 
 from pythae.pipelines import TrainingPipeline
-from pythae.models import BetaVAE, BetaVAEConfig, BetaTCVAE, BetaTCVAEConfig, RHVAEConfig, RHVAE, VAE, AutoModel
-from pythae.models.vae.vae_config import VAEConfig
-from pythae.trainers import BaseTrainerConfig
+from pythae.models import (
+    BetaVAE,
+    BetaVAEConfig,
+    BetaTCVAE,
+    BetaTCVAEConfig,
+    RHVAEConfig,
+    AE,
+    AEConfig,
+    FactorVAE,
+    FactorVAEConfig,
+    IWAE,
+    IWAEConfig,
+    INFOVAE_MMD,
+    INFOVAE_MMD_Config,
+    VAMP,
+    VAMPConfig,
+    DisentangledBetaVAE,
+    DisentangledBetaVAEConfig,
+    RHVAE,
+    VAE,
+    AutoModel,
+    BaseAEConfig,
+)
+from pythae.trainers import BaseTrainerConfig, AdversarialTrainerConfig
 from pythae.models.nn.benchmarks.celeba.resnets import Encoder_ResNet_VAE_CELEBA, Decoder_ResNet_AE_CELEBA
 from pythae.models.nn.benchmarks.celeba.convnets import Encoder_Conv_VAE_CELEBA, Decoder_Conv_AE_CELEBA
 
@@ -52,7 +71,8 @@ class VAETrainConfig:
         network_type: If there are multiple implementations of the VAE components available, this chooses one.
         seed: The seed for the training.
         latent_size: The dimensionality of the latent space
-        beta: The beta value for the BetaVAE
+        alpha, beta, gamma, lbd, C, warmup_epoch, number_samples, number_components, kernel_choice, kernel_width:
+            The parameters for the specified VAEs
         model_path: The name of the directory to save the trained checkpoint to.
         loss: The type of loss to use in the `pythae` library.
               This can be "bce" or "mse".
@@ -69,7 +89,16 @@ class VAETrainConfig:
     network_type: str = "resnet"
     seed: int = 42
     latent_size: int = 10
+    alpha: float = 1
     beta: float = 1
+    gamma: float = 1
+    lbd: float = 10
+    C: float = 30
+    warmup_epoch: int = 25
+    number_samples: int = 3
+    kernel_choice: str = "imq"
+    kernel_bandwidth: float = 1
+    number_components: int = 50
     model_path: str = "vae_train"
     loss: str = "mse"
     max_num_epochs: int = 40
@@ -183,7 +212,7 @@ def _get_input_dim(dataset: str) -> Tuple[int, int, int]:
         return -1, -1, -1
 
 
-def _get_model_config(cfg: VAETrainConfig) -> VAEConfig:
+def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
     """
     Constructs the `pythae` model configuration according to the config of the script.
     Args:
@@ -211,15 +240,58 @@ def _get_model_config(cfg: VAETrainConfig) -> VAEConfig:
         )
     elif cfg.vae_flavour == "BetaTCVAE":
         model_config = BetaTCVAEConfig(
+            alpha=cfg.alpha,
             beta=cfg.beta,
+            gamma=cfg.gamma,
             latent_dim=cfg.latent_size,
             reconstruction_loss=cfg.loss,
         )
+    elif cfg.vae_flavour == "AE":
+        return AEConfig(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+        )
+    elif cfg.vae_flavour == "FactorVAE":
+        return FactorVAEConfig(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+            gamma=cfg.gamma,
+        )
+    elif cfg.vae_flavour == "IWAE":
+        return IWAEConfig(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+            number_samples=cfg.number_samples,
+        )
+    elif cfg.vae_flavour == "INFOVAE_MMD":
+        return INFOVAE_MMD_Config(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+            kernel_choice=cfg.kernel_choice,
+            alpha=cfg.alpha,
+            lbd=cfg.lbd,
+            kernel_bandwidth=cfg.kernel_bandwidth,
+        )
+    elif cfg.vae_flavour == "VAMP":
+        return VAMPConfig(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+            number_components=cfg.number_components,
+        )
+    elif cfg.vae_flavour == "DisentangledBetaVAE":
+        return DisentangledBetaVAEConfig(
+            latent_dim=cfg.latent_size,
+            reconstruction_loss=cfg.loss,
+            C=cfg.C,
+            warmup_epoch=cfg.warmup_epoch,
+        )
+    else:
+        raise NotImplementedError
 
     return model_config
 
 
-def _get_vae_class(vae_flavour: str) -> Any:
+def _get_vae_class(vae_flavour: str) -> Any:  # noqa: C901
     """Returns the appropriate model class according to the specification."""
     if vae_flavour == "RHVAE":
         return RHVAE
@@ -227,6 +299,20 @@ def _get_vae_class(vae_flavour: str) -> Any:
         return BetaVAE
     elif vae_flavour == "BetaTCVAE":
         return BetaTCVAE
+    elif vae_flavour == "AE":
+        return AE
+    elif vae_flavour == "FactorVAE":
+        return FactorVAE
+    elif vae_flavour == "IWAE":
+        return IWAE
+    elif vae_flavour == "INFOVAE_MMD":
+        return INFOVAE_MMD
+    elif vae_flavour == "VAMP":
+        return VAMP
+    elif vae_flavour == "DisentangledBetaVAE":
+        return DisentangledBetaVAE
+    else:
+        raise NotImplementedError
 
 
 def _get_model(cfg: VAETrainConfig) -> VAE:
@@ -269,7 +355,6 @@ def _save_representations(
 def main(cfg: VAETrainConfig):
     assert cfg.dataset in ["dsprites", "celeba", "shapes3d"], f"Dataset {cfg.dataset} is not supported."
     assert cfg.dataset_paths is not None
-    assert cfg.vae_flavour in ["BetaVAE", "RHVAE", "BetaTCVAE"]
 
     device = "cpu" if cfg.no_cuda else "cuda"
 
@@ -280,7 +365,8 @@ def main(cfg: VAETrainConfig):
     model = _get_model(cfg)
 
     # Construct the training config according to the script configuration
-    training_config = BaseTrainerConfig(
+    TrainerConfig = BaseTrainerConfig if cfg.vae_flavour != "FactorVAE" else AdversarialTrainerConfig
+    training_config = TrainerConfig(
         output_dir=cfg.model_path,
         num_epochs=cfg.max_num_epochs,
         learning_rate=cfg.learning_rate,

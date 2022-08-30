@@ -28,17 +28,23 @@ class MISTResult:
         validation_loss (float): The estimate of the mutual information
                                                 as calculated on the validation dataset
         estimator (mist.MIST): The model trained and used for estimation of the mutual information
-        A: In case of also estimating the linear subspace capturing the most information, this holds the
+        A_1: In case of also estimating the linear subspace capturing the most information, this holds the
            d-frame defining the estimated subspace of the first distribution
-        B: In case of also estimating the linear subspace capturing the most information, this holds the
+        A_2: In case of also estimating the linear subspace capturing the most information, this holds the
            d-frame defining the estimated subspace of the second distributions
+        E_1: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the complement of the estimated subspace of the first distribution
+        E_2: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the complement of the estimated subspace of the second distributions
     """
 
     mutual_information: float
     loss: float
     estimator: mist.MIST
-    A: geoopt.ManifoldTensor
-    B: geoopt.ManifoldTensor
+    A_1: geoopt.ManifoldTensor
+    A_2: geoopt.ManifoldTensor
+    E_1: torch.Tensor
+    E_2: torch.Tensor
 
 
 def _construct_mist(
@@ -334,8 +340,10 @@ def find_subspace(
         mutual_information=training_results["test_results"]["test_mutual_information_mine_epoch"],
         loss=training_results["test_results"]["test_loss_epoch"],
         estimator=best_model,
-        A=A_hat_x,
-        B=A_hat_z,
+        A_1=A_hat_x,
+        A_2=A_hat_z,
+        E_1=torch.eye(A_hat_x.shape[0]) - A_hat_x @ A_hat_x.T,
+        E_2=torch.eye(A_hat_z.shape[0]) - A_hat_z @ A_hat_z.T,
     )
 
     return mi_estimate

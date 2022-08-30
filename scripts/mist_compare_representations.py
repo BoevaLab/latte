@@ -232,8 +232,8 @@ def _process_subspace(
     cfg: MISTConfig,
 ):
 
-    A_hat = subspace_result.A.detach().cpu()
-    B_hat = subspace_result.B.detach().cpu()
+    A_hat = subspace_result.A_1.detach().cpu()
+    B_hat = subspace_result.A_2.detach().cpu()
 
     subspace_size = (A_hat.shape[1], B_hat.shape[1])
 

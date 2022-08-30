@@ -10,8 +10,8 @@ from latte.dataset import utils as dataset_utils
 
 @dataclasses.dataclass
 class LinearRegressionResult:
-    A: torch.Tensor
-    E: torch.Tensor
+    A_1: torch.Tensor
+    E_1: torch.Tensor
     mutual_information: float
     complement_mutual_information: float
 
@@ -47,8 +47,8 @@ def find_subspace(X: np.ndarray, Z: np.ndarray, p_train: float = 0.8) -> LinearR
         complement_mutual_information=ksg_estimator.mutual_information(
             [X_test_projected_E, Z_test.reshape(-1, 1)], k=3
         ),
-        A=torch.from_numpy(A_hat),
-        E=torch.from_numpy(E_hat),
+        A_1=torch.from_numpy(A_hat).float(),
+        E_1=torch.from_numpy(E_hat).float(),
     )
 
     return mi_estimate
