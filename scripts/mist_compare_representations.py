@@ -11,7 +11,6 @@ import torch
 from sklearn.preprocessing import StandardScaler
 
 from pythae.models import AutoModel
-from pythae.models import BetaVAE, BetaTCVAE, FactorVAE
 
 from latte.dataset import celeba, shapes3d, utils as dsutils
 from latte.models.vae import utils as vae_utils
@@ -223,18 +222,6 @@ def _process_subspace(
             mi = factor_result_1.mutual_information
             experiment_results[f"I(R{pair_id[kk]}, {factor_of_interest} | subspace_sizes={subspace_size})"] = mi
             print(f"I(R{pair_id[kk]}, {factor_of_interest} | subspace_sizes={subspace_size}) = {mi:.3f}.")
-
-
-# TODO (Anej)
-def _get_model_class(model_class: str) -> Any:
-    if model_class == "BetaVAE":
-        return BetaVAE
-    elif model_class == "FactorVAE":
-        return FactorVAE
-    elif model_class == "BetaTCVAE":
-        return BetaTCVAE
-    else:
-        raise NotImplementedError
 
 
 def _process_latent_representations(

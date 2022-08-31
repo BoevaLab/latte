@@ -2,24 +2,15 @@
 Code for evaluating various general results and solutions used in `Latte`.
 """
 
-from typing import List, Dict, Protocol, Any
+from typing import List
 from collections import defaultdict
 from itertools import product
 
 import numpy as np
 import pandas as pd
 import torch
-from sklearn import metrics, preprocessing
 
 from sklearn import feature_selection
-
-
-class ScikitModel(Protocol):
-    def fit(self, X, y, sample_weight=None) -> Any:
-        ...
-
-    def predict(self, X) -> Any:
-        ...
 
 
 def subspace_fit(U: np.ndarray, U_hat: np.ndarray) -> pd.DataFrame:
@@ -96,39 +87,3 @@ def axis_factor_mutual_information(Z: torch.Tensor, Y: torch.Tensor, factor_name
         # we simulate 1 feature, we extract the first one
 
     return pd.DataFrame(mis)
-
-
-# TODO (Anej): Documentation
-def evaluate_with_a_model(
-    X_train: torch.Tensor,
-    y_train: torch.Tensor,
-    X_val: torch.Tensor,
-    y_val: torch.Tensor,
-    model: ScikitModel,
-    mode: str = "class",
-) -> Dict[str, float]:
-
-    scaler = preprocessing.StandardScaler().fit(X_train)
-    X_train = scaler.transform(X_train)
-    X_val = scaler.transform(X_val)
-
-    model = model.fit(X_train, y_train)
-
-    y_val_hat = model.predict(X_val)
-    y_train_hat = model.predict(X_train)
-
-    return (
-        {
-            "accuracy": round(metrics.accuracy_score(y_val, y_val_hat), 3),
-            "f1": round(metrics.f1_score(y_val, y_val_hat, average="macro"), 3),
-            "train_accuracy": round(metrics.accuracy_score(y_train, y_train_hat), 3),
-            "train_f1": round(metrics.f1_score(y_train, y_train_hat, average="macro"), 3),
-        }
-        if mode == "class"
-        else {
-            "r2": round(metrics.r2_score(y_val, y_val_hat), 3),
-            "mse": round(metrics.mean_squared_error(y_val, y_val_hat), 3),
-            "train_r2": round(metrics.r2_score(y_train, y_train_hat), 3),
-            "train_mse": round(metrics.mean_squared_error(y_train, y_train_hat), 3),
-        }
-    )

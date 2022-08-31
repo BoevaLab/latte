@@ -1007,13 +1007,16 @@ def factor_trend(
         plt.show()
 
 
+# TODO (Anej): Documentation
 def factor_heatmap(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
+    interpolate: bool = True,
     k: int = 5,
     N: int = 4000,
     q: float = 0.05,
+    attribute_names: Optional[List[str]] = None,
     file_name: Optional[str] = None,
     rng: RandomGenerator = 42,
 ) -> None:
@@ -1025,8 +1028,8 @@ def factor_heatmap(
     The function can be used to plot the relationship between a ground-truth factor of variation and a two learned
     dimensions or the other way around.
     Args:
-        Z: A 1-dimensional array containing the values of the learned dimension for a sample of data points.
-        Y: A 2-dimensional array containing the ground-truth factors of variation for the same data points.
+        Z:
+        Y:
         target: The meaning of the target.
                 If "ground-truth", the hue corresponds to the values of the grond-truth factor, if "learned", it
                 corresponds to the values of a learned dimension.
@@ -1045,32 +1048,50 @@ def factor_heatmap(
         assert Y.shape[1] == 2
         X = Y
         T = Z
+
+        axis_name = "Learned Dimension"
     else:
         # Plot Y against Z
         assert Z.shape[1] == 2
         X = Z
         T = Y
 
+        axis_name = "Factor"
+
+    fig, ax = plt.subplots(nrows=1, ncols=T.shape[1], figsize=(2 * T.shape[1], 2), dpi=120)
+
     rng = np.random.default_rng(rng)
 
-    regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T)
+    for jj in range(T.shape[1]):
 
-    # Generate a uniform sample from the range of `X`
-    x = rng.uniform(low=-1, high=1, size=(N, 2)) * np.asarray(
-        [
-            torch.quantile(X[:, 0], 1 - q) - torch.quantile(X[:, 0], q),
-            torch.quantile(X[:, 1], 1 - q) - torch.quantile(X[:, 1], q),
-        ]
-    )
+        if interpolate:
+            regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T[:, jj])
 
-    # Compute the values of the variable in `T` for the sampled points based on kNN
-    t = regressor.predict(x)
+            # Generate a uniform sample from the range of `X`
+            x = rng.uniform(low=-1, high=1, size=(N, 2)) * np.asarray(
+                [
+                    torch.quantile(X[:, 0], 1 - q) - torch.quantile(X[:, 0], q),
+                    torch.quantile(X[:, 1], 1 - q) - torch.quantile(X[:, 1], q),
+                ]
+            )
 
-    fig, ax = plt.subplots(figsize=(3.25, 3.25), dpi=200)
-    ax.scatter(x[:, 0], x[:, 1], c=t, cmap="jet", s=10, label=t)
+            # Compute the values of the variable in `T` for the sampled points based on kNN
+            t = regressor.predict(x)
 
-    axis_name = "Learned Dimension" if target == "learned" else "Factor"
-    ax.set(xlabel=f"{axis_name} 1", ylabel=f"{axis_name} 2")
+        else:
+            ixs = rng.choice(len(X), size=min(N, len(X)), replace=False)
+            x = X[ixs]
+            t = T[ixs, jj]
+
+        ax[jj].scatter(x[:, 0], x[:, 1], c=t, cmap="jet", s=3, label=t)
+        ax[jj].set(
+            xlabel=f"{axis_name} 1",
+            ylabel=f"{axis_name} 2",
+            title=attribute_names[jj] if attribute_names is not None else "",
+        )
+        ax[jj].get_xaxis().set_ticks([])
+        ax[jj].get_yaxis().set_ticks([])
+        ax[jj].tick_params(labelsize=6)
 
     fig.tight_layout()
 

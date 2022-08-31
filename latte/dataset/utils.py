@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import List, Literal, Union, Tuple  # pytype: disable=not-supported-yet
+from typing import List, Literal, Union, Tuple, Any  # pytype: disable=not-supported-yet
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -128,3 +128,13 @@ def split(
         D_split = [(x[permutation][:end_train], x[permutation][end_train:]) for x in D]
 
     return D_split
+
+
+def get_dataset_module(dataset: str) -> Any:
+    from latte.dataset import shapes3d, celeba
+
+    """Returns the module to use for various utilities according to the dataset."""
+    if dataset == "celeba":
+        return celeba
+    elif dataset == "shapes3d":
+        return shapes3d

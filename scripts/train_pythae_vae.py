@@ -277,7 +277,7 @@ def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
         )
     elif cfg.vae_flavour == "VAMP":
         return VAMPConfig(
-            input_dim=(64, 64, 3) if cfg.dataset in ["celeba", "shapes3d"] else (64, 64, 1),
+            input_dim=_get_input_dim(cfg.dataset),
             latent_dim=cfg.latent_size,
             reconstruction_loss=cfg.loss,
             number_components=cfg.number_components,

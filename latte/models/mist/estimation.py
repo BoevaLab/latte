@@ -50,7 +50,6 @@ class MISTResult:
 def _construct_mist(
     x_size: int,
     z_max_size: int,
-    model_comparison: bool = False,
     subspace_size: Optional[Union[int, Tuple[int, int]]] = None,
     mine_network_width: Optional[int] = None,
     club_network_width: Optional[int] = None,
@@ -102,23 +101,26 @@ def _construct_mist(
         The constructed MIST model.
     """
 
-    assert model_comparison or isinstance(subspace_size, int)
-    assert not model_comparison or isinstance(subspace_size, tuple)
-
     if statistics_network is None:
         assert mine_network_width is not None
         statistics_network = mine.StatisticsNetwork(
             S=nn.Sequential(
                 nn.Linear(
-                    subspace_size + z_max_size if not model_comparison else subspace_size[0] + subspace_size[1],
+                    subspace_size + z_max_size
+                    if isinstance(subspace_size, int)
+                    else subspace_size[0] + subspace_size[1],
                     mine_network_width,
                 ),
+                nn.LayerNorm(mine_network_width),
                 nn.LeakyReLU(negative_slope=1e-1),
                 nn.Linear(mine_network_width, mine_network_width),
+                nn.LayerNorm(mine_network_width),
                 nn.LeakyReLU(negative_slope=1e-1),
                 nn.Linear(mine_network_width, mine_network_width),
+                nn.LayerNorm(mine_network_width),
                 nn.LeakyReLU(negative_slope=1e-1),
                 nn.Linear(mine_network_width, mine_network_width),
+                nn.LayerNorm(mine_network_width),
                 nn.LeakyReLU(negative_slope=1e-1),
             ),
             out_dim=mine_network_width,
@@ -170,7 +172,7 @@ def _construct_mist(
     if checkpoint_path is None:
         model = mist.MIST(
             n=(x_size, z_max_size),
-            d=(subspace_size, z_max_size) if not model_comparison else subspace_size,
+            d=(subspace_size, z_max_size) if isinstance(subspace_size, int) else subspace_size,
             subspace_fit=x_size != subspace_size,
             mine_args=mine_args,
             club_args=club_args,
@@ -187,7 +189,7 @@ def _construct_mist(
         model = mist.MIST.load_from_checkpoint(
             checkpoint_path=checkpoint_path,
             n=(x_size, z_max_size),
-            d=(subspace_size, z_max_size) if not model_comparison else subspace_size,
+            d=(subspace_size, z_max_size) if isinstance(subspace_size, int) else subspace_size,
             subspace_fit=x_size != subspace_size,
             mine_args=mine_args,
             club_args=club_args,

@@ -20,8 +20,19 @@ from sklearn.feature_selection import mutual_info_regression
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn import metrics, linear_model, svm
 
-from pythae.models import AutoModel
-from pythae.models import BetaVAE, BetaTCVAE, FactorVAE, VAE
+from pythae.models import (
+    BetaVAE,
+    BetaTCVAE,
+    AE,
+    FactorVAE,
+    IWAE,
+    INFOVAE_MMD,
+    VAMP,
+    DisentangledBetaVAE,
+    RHVAE,
+    VAE,
+    AutoModel,
+)
 from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 
 from latte.dataset import celeba, shapes3d, utils as dsutils
@@ -31,6 +42,7 @@ from latte.models.mist import estimation as mist_estimation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
 from latte.models.vae.projection_vae import ProjectionBaseEncoder, ProjectionBaseDecoder
+from latte.utils import space_evaluation
 import latte.hydra_utils as hy
 
 
@@ -219,13 +231,26 @@ def _train_mist(
 
 
 # TODO (Anej)
-def _get_model_class(model_class: str) -> Any:
-    if model_class == "BetaVAE":
+def _get_model_class(vae_flavour: str) -> Any:  # noqa: C901
+    """Returns the appropriate model class according to the specification."""
+    if vae_flavour == "RHVAE":
+        return RHVAE
+    elif vae_flavour == "BetaVAE":
         return BetaVAE
-    elif model_class == "FactorVAE":
-        return FactorVAE
-    elif model_class == "BetaTCVAE":
+    elif vae_flavour == "BetaTCVAE":
         return BetaTCVAE
+    elif vae_flavour == "AE":
+        return AE
+    elif vae_flavour == "FactorVAE":
+        return FactorVAE
+    elif vae_flavour == "IWAE":
+        return IWAE
+    elif vae_flavour == "INFOVAE_MMD":
+        return INFOVAE_MMD
+    elif vae_flavour == "VAMP":
+        return VAMP
+    elif vae_flavour == "DisentangledBetaVAE":
+        return DisentangledBetaVAE
     else:
         raise NotImplementedError
 
@@ -312,7 +337,7 @@ def _compute_predictability_of_attributes(
         ["linear", "nonlinear"],
         [linear_model.SGDClassifier(loss="log_loss", random_state=1), svm.SVC(C=0.1, random_state=1)],
     ):
-        prediction_result = evaluation.evaluate_with_a_model(
+        prediction_result = space_evaluation.evaluate_with_a_model(
             Z_val_projected[predictor_train_ixs],
             Y_val_c[predictor_train_ixs],
             Z_val_projected[list(set(range(len(Z_val_projected))) - set(predictor_train_ixs))],
