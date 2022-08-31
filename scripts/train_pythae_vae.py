@@ -51,6 +51,7 @@ from pythae.models.nn.benchmarks.celeba.resnets import Encoder_ResNet_VAE_CELEBA
 from pythae.models.nn.benchmarks.celeba.convnets import Encoder_Conv_VAE_CELEBA, Decoder_Conv_AE_CELEBA
 
 from latte.models.vae import utils as vaeutils
+from latte.models.benchmarks import conv_models
 from latte.modules.callbacks import TensorboardCallback
 import latte.hydra_utils as hy
 
@@ -147,6 +148,8 @@ def _get_model_classes(dataset: str, network_type: Optional[str] = None) -> Tupl
         return None, None  # Not implemented yet
     elif dataset in ["shapes3d", "celeba"]:
         assert network_type in ["conv", "resnet"]
+        if network_type == "conv":
+            return conv_models.ConvEncoder, conv_models.ConvDecoder
         if network_type == "resnet":
             return Encoder_ResNet_VAE_CELEBA, Decoder_ResNet_AE_CELEBA
         else:
@@ -274,6 +277,7 @@ def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
         )
     elif cfg.vae_flavour == "VAMP":
         return VAMPConfig(
+            input_dim=(64, 64, 3) if cfg.dataset in ["celeba", "shapes3d"] else (64, 64, 1),
             latent_dim=cfg.latent_size,
             reconstruction_loss=cfg.loss,
             number_components=cfg.number_components,

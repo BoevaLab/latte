@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from sklearn.preprocessing import StandardScaler
 
@@ -56,18 +55,11 @@ class MISTConfig:
                      Currently supported: "BetaVAE", "BetaTCVAE", "FactorVAE".
         early_stopping_min_delta: Min delta parameter for the early stopping callback of the MIST model.
         early_stopping_patience: Patience parameter for the early stopping callback of the MIST model.
-        mine_estimation_network_width: The script uses the default implemented MINE statistics network for estimating
-                                       the mutual information.
-                                       This specified the width to be used.
-        mine_subspace_network_width: The script uses a simpler network for determining the optimal subspace.
-                                     This specified the width to be used.
+        mine_network_width: The script uses the default implemented MINE statistics network.
+                            This specified the width to be used.
         mist_batch_size: Batch size for training MIST.
-        mine_estimation_learning_rate: Learning rate for training `MINE` when used for estimation of the mutual
-                                       information or the entropy.
-                                       Should be around `1e-4`.
-        mine_subspace_learning_rate: Learning rate for training `MINE` when used for estimation of the optimal subspace
-                                     capturing the most information about a given factor.
-                                     Should be around `1e-4`.
+        mine_learning_rate: Learning rate for training `MINE`.
+                            Should be around `1e-4`.
         manifold_learning_rate: Learning rate for optimising over the Stiefel manifold of projection matrices.
                                 Should be larger, around `1e-2`.
         mist_max_epochs: Maximum number of epochs for training MIST.
@@ -90,17 +82,16 @@ class MISTConfig:
     vae_model_file_paths: List[str]
     subspace_sizes: Tuple[List[int], List[int]] = ([1, 2], [1, 2])
     model_class: str = "BetaVAE"
-    early_stopping_min_delta: float = 1e-2
+    early_stopping_min_delta: float = 5e-3
     early_stopping_patience: int = 12
-    mine_estimation_network_width: int = 128
+    mine_network_width: int = 128
     mine_subspace_network_width: int = 128
     mist_batch_size: int = 128
-    mine_estimation_learning_rate: float = 1e-4
-    mine_subspace_learning_rate: float = 1e-5
+    mine_learning_rate: float = 1e-4
     manifold_learning_rate: float = 1e-2
     mist_max_epochs: int = 256
     lr_scheduler_patience: int = 6
-    lr_scheduler_min_delta: float = 1e-2
+    lr_scheduler_min_delta: float = 5e-3
     seed: int = 1
     gpus: int = 1
     num_workers: int = 6
@@ -165,31 +156,6 @@ def _train_mist(
     """
 
     print("Training MIST.")
-
-    # If we are also estimating the subspaces, follow a different training regime
-    # if (Z["train"].shape[1], Y["train"].shape[1]) == subspace_size:
-    if fit_subspace:
-        mine_learning_rate = cfg.mine_subspace_learning_rate
-        # statistics_network = mine.StatisticsNetwork(
-        #     S=nn.Sequential(
-        #         nn.Linear(subspace_size[0] + subspace_size[1], cfg.mine_subspace_network_width),
-        #         nn.ReLU(),
-        #     ),
-        #     out_dim=cfg.mine_subspace_network_width,
-        # )
-        statistics_network = None
-    else:
-        mine_learning_rate = cfg.mine_estimation_learning_rate
-        statistics_network = None
-
-    early_stopping_callback = EarlyStopping(
-        monitor="validation_mutual_information_mine",
-        min_delta=cfg.early_stopping_min_delta,
-        patience=cfg.early_stopping_patience,
-        verbose=False,
-        mode="max",
-    )
-
     mi_estimation_result = mist_estimation.find_subspace(
         X=Z,
         Z_max=Y,
@@ -200,16 +166,14 @@ def _train_mist(
             z_max_size=Y["train"].shape[1],
             subspace_size=subspace_size,
             model_comparison=True,
-            statistics_network=statistics_network,
-            mine_network_width=cfg.mine_estimation_network_width,
-            mine_learning_rate=mine_learning_rate,
+            mine_network_width=cfg.mine_network_width,
+            mine_learning_rate=cfg.mine_learning_rate,
             manifold_learning_rate=cfg.manifold_learning_rate,
             lr_scheduler_patience=cfg.lr_scheduler_patience,
             lr_scheduler_min_delta=cfg.lr_scheduler_min_delta,
             verbose=False,
         ),
         trainer_kwargs=dict(
-            callbacks=[early_stopping_callback],
             max_epochs=cfg.mist_max_epochs,
             enable_progress_bar=False,
             enable_model_summary=True,
@@ -242,24 +206,6 @@ def _process_subspace(
     Z_1_projected = {split: Z_1[split] @ A_hat.detach().cpu() for split in Z_1}
     Z_2_projected = {split: Z_2[split] @ B_hat.detach().cpu() for split in Z_2}
 
-    """"
-    if (
-        Z_1_projected["train"].shape[1] != Z_1["train"].shape[1]
-        or Z_2_projected["train"].shape[1] != Z_2["train"].shape[1]
-    ):
-        print("Re-calculating the value of MI on the subspaces.")
-        comparison_result = _train_mist(
-            Z={"train": Z_1_projected["train"], "val": Z_1_projected["val"], "test": Z_1_projected["test"]},
-            Y={"train": Z_2_projected["train"], "val": Z_2_projected["val"], "test": Z_2_projected["test"]},
-            subspace_size=(Z_1_projected["train"].shape[1], Z_2_projected["train"].shape[1]),
-            fit_subspace=False,
-            cfg=cfg,
-        )
-        mi = comparison_result.mutual_information
-        print(f"The mutual information in the projected subspaces is {mi:.3f}.")
-        experiment_results[f"I(R{pair_id[0]}, R{pair_id[1]} | subspace_sizes={subspace_size})"] = mi
-    """
-
     for factor_of_interest in cfg.factors_of_interest:
         for kk, Z in enumerate([Z_1_projected, Z_2_projected]):
             print(f"Estimating the information about {factor_of_interest} in the subspaces for model {kk}.")
@@ -279,6 +225,7 @@ def _process_subspace(
             print(f"I(R{pair_id[kk]}, {factor_of_interest} | subspace_sizes={subspace_size}) = {mi:.3f}.")
 
 
+# TODO (Anej)
 def _get_model_class(model_class: str) -> Any:
     if model_class == "BetaVAE":
         return BetaVAE
@@ -335,7 +282,7 @@ def _process_latent_representations(
             )
             mi = comparison_result.mutual_information
             print(f"The information between the representations of model {ii} and {jj} is {mi}")
-            experiment_results[f"I(R{ii}, R{jj} | subspace_sizes={(s1, s2)}, train)"] = mi
+            experiment_results[f"I(R{ii}, R{jj} | subspace_sizes={(s1, s2)} )"] = mi
             _process_subspace(
                 Z_1={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
                 Z_2={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},

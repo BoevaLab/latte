@@ -14,8 +14,6 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-from torch import nn
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import geoopt
 
 from sklearn.feature_selection import mutual_info_regression
@@ -29,7 +27,6 @@ from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 from latte.dataset import celeba, shapes3d, utils as dsutils
 from latte.models.vae import utils as vaeutils
 from latte.utils import evaluation, visualisation, ksg_estimator
-from latte.models.mine import mine
 from latte.models.mist import estimation as mist_estimation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
@@ -73,18 +70,11 @@ class MISTConfig:
                      Currently supported: "BetaVAE", "BetaTCVAE", "FactorVAE".
         early_stopping_min_delta: Min delta parameter for the early stopping callback of the MIST model.
         early_stopping_patience: Patience parameter for the early stopping callback of the MIST model.
-        mine_estimation_network_width: The script uses the default implemented MINE statistics network for estimating
-                                       the mutual information.
-                                       This specified the width to be used.
-        mine_subspace_network_width: The script uses a simpler network for determining the optimal subspace.
-                                     This specified the width to be used.
+        mine_network_width: The script uses the default implemented MINE statistics network.
+                            This specified the width to be used.
         mist_batch_size: Batch size for training MIST.
-        mine_estimation_learning_rate: Learning rate for training `MINE` when used for estimation of the mutual
-                                       information or the entropy.
+        mine_learning_rate: Learning rate for training `MINE`.
                                        Should be around `1e-4`.
-        mine_subspace_learning_rate: Learning rate for training `MINE` when used for estimation of the optimal subspace
-                                     capturing the most information about a given factor.
-                                     Should be around `1e-4`.
         manifold_learning_rate: Learning rate for optimising over the Stiefel manifold of projection matrices.
                                 Should be larger, around `1e-2`.
         mist_max_epochs: Maximum number of epochs for training MIST.
@@ -95,6 +85,7 @@ class MISTConfig:
                           This is used for sampling.
         plot_nrows: Number of rows to plot when plotting generated images and reconstructions by the VAE.
         plot_ncols: Number of columns to plot when plotting generated images and reconstructions by the VAE.
+        plot_n_images: Number of images to use for homotopies.
         seed: The random seed.
         gpus: The `gpus` parameter for Pytorch Lightning.
         num_workers:  The `num_workers` parameter for Pytorch Lightning data modules.
@@ -118,20 +109,19 @@ class MISTConfig:
     training_fractions: Optional[List[float]] = None
     training_Ns: Optional[List[int]] = field(default_factory=lambda: [10000])
     model_class: str = "BetaVAE"
-    early_stopping_min_delta: float = 1e-3
-    early_stopping_patience: int = 8
-    mine_estimation_network_width: int = 256
-    mine_subspace_network_width: int = 64
+    early_stopping_min_delta: float = 5e-3
+    early_stopping_patience: int = 12
+    mine_network_width: int = 256
     mist_batch_size: int = 128
-    mine_estimation_learning_rate: float = 1e-4
-    mine_subspace_learning_rate: float = 1e-5
+    mine_learning_rate: float = 1e-4
     manifold_learning_rate: float = 1e-2
     mist_max_epochs: int = 256
-    lr_scheduler_patience: int = 5
-    lr_scheduler_min_delta: float = 1e-3
+    lr_scheduler_patience: int = 6
+    lr_scheduler_min_delta: float = 5e-3
     n_gmm_components: int = 8
     plot_nrows: int = 8
     plot_ncols: int = 12
+    plot_n_images: int = 4
     seed: int = 1
     gpus: int = 1
     num_workers: int = 6
@@ -194,28 +184,7 @@ def _train_mist(
 
     print("Training MIST.")
 
-    early_stopping_callback = EarlyStopping(
-        monitor="validation_mutual_information_mine",
-        min_delta=cfg.early_stopping_min_delta,
-        patience=cfg.early_stopping_patience,
-        verbose=False,
-        mode="max",
-    )
-
     p_train, p_val = (0.4, 0.2) if fit_subspace else (0.7, 0.1)
-
-    # The less-expressive MINE statistics network used when estimating the subspace
-    statistics_network = (
-        mine.StatisticsNetwork(
-            S=nn.Sequential(
-                nn.Linear(subspace_size + Y.shape[1], cfg.mine_subspace_network_width),
-                nn.ReLU(),
-            ),
-            out_dim=cfg.mine_subspace_network_width,
-        )
-        if fit_subspace
-        else None
-    )
 
     Z = torch.from_numpy(StandardScaler().fit_transform(Z)).float()
 
@@ -229,16 +198,14 @@ def _train_mist(
             x_size=Z.shape[1],
             z_max_size=Y.shape[1],
             subspace_size=subspace_size,
-            statistics_network=statistics_network,
-            mine_network_width=cfg.mine_estimation_network_width if not fit_subspace else -1,
-            mine_learning_rate=cfg.mine_subspace_learning_rate if fit_subspace else cfg.mine_estimation_learning_rate,
+            mine_network_width=cfg.mine_network_width,
+            mine_learning_rate=cfg.mine_learning_rate,
             manifold_learning_rate=cfg.manifold_learning_rate,
             lr_scheduler_patience=cfg.lr_scheduler_patience,
             lr_scheduler_min_delta=cfg.lr_scheduler_min_delta,
             verbose=False,
         ),
         trainer_kwargs=dict(
-            callbacks=[early_stopping_callback],
             max_epochs=cfg.mist_max_epochs,
             enable_progress_bar=False,
             enable_model_summary=False,
@@ -251,6 +218,7 @@ def _train_mist(
     return mi_estimation_result
 
 
+# TODO (Anej)
 def _get_model_class(model_class: str) -> Any:
     if model_class == "BetaVAE":
         return BetaVAE
@@ -434,6 +402,16 @@ def _process_subspace(
         n_values=cfg.plot_ncols,
         n_axes=min(projection_subspace_size, cfg.plot_nrows),
         file_name=f"lat_trav_erased{erased}_{method}_{subspace_size}_{factors}_{estimation_N}.png",
+    )
+
+    # Plot homotopies
+    starting_xs = [X[rng.choice(len(X))] for _ in range(cfg.plot_n_images)]
+    visualisation.homotopies(
+        vae_model=projection_model,
+        xs=[x.to(device) for x in starting_xs],
+        n_cols=cfg.plot_ncols,
+        device=device,
+        file_name="homotopies_erased{erased}_{method}_{subspace_size}_{factors}_{estimation_N}.png",
     )
 
     if not erased:
@@ -912,6 +890,16 @@ def main(cfg: MISTConfig):
         n_axes=cfg.plot_nrows,
         cmap=None,
         file_name="latent_traversals_full_model.png",
+    )
+
+    # Plot homotopies
+    starting_xs = [X_val[rng.choice(len(X_val))] for _ in range(cfg.plot_n_images)]
+    visualisation.homotopies(
+        vae_model=trained_model,
+        xs=[x.to(device) for x in starting_xs],
+        n_cols=cfg.plot_ncols,
+        device=device,
+        file_name="homotopies_full_model.png",
     )
 
     # Go through the specified factors of interest, and for each provided set, find the subspace capturing the most
