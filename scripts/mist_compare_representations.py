@@ -1,20 +1,23 @@
 # TODO (Anej): Documentation
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, List
 from dataclasses import dataclass
 from itertools import product
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 import pytorch_lightning as pl
 import torch
 
 from sklearn.preprocessing import StandardScaler
 
-from pythae.models import AutoModel
+from pythae.models import AutoModel, VAE
 
-from latte.dataset import celeba, shapes3d, utils as dsutils
+from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vae_utils
-from latte.models.mist import estimation as mist_estimation
+from latte.tools import model_comparison, space_evaluation
+from latte.tools.space_evaluation import MIEstimationMethod
+from latte.utils import visualisation
 import latte.hydra_utils as hy
 
 
@@ -28,50 +31,22 @@ class MISTConfig:
         dataset: The dataset to analyse
         file_paths_x: Paths to the train, validation, and test image datasets, in this order.
         file_paths_y: Paths to the train, validation, and test attribute datasets, in this order.
-        vae_model_file_path: Path to the file of the trained VAE model.
+        vae_model_file_paths: Path to the file of the trained VAE model.
         factors_of_interest: A list of lists.
                              Each element of the outer list is a list of elements for which we want to find the linear
                              subspace capturing the most information about them *together*.
                              Multiple such lists can be provided to explore subspaces capturing information about
                              different sets of factors.
-        alternative_factors: A list of lists.
-                             After the subspace containing the most information about a certain set of factors has been
-                             found, the script will check how much information there is in that subspace about all the
-                             factors specified in `alternative_factors`.
-                             It should be of the same length as `factors_of_interest`.
-                             It for each set of factors in `factors_of_interest`, it will check how much information
-                             there is the found space about each of the factors specified in the corresponding list in
-                             `alternative_factors`.
         subspace_sizes: A list of dimensionalities of the subspaces to consider.
                         For each set of factors of interest, a subspace of each size specified in `subspace_sizes` will
                         be computed.
-        training_fractions: The list of the different fractions of all the entire dataset to use to fit the MIST model.
-                        This is useful to inspect the sensitivity of the model to the number of training points.
-        training_Ns: The list of the different numbers of data points to use to fit the MIST model.
-                             This is useful to inspect the sensitivity of the model to the number of training points.
-                             It overrides `training_fractions`
-        model_class: The VAE flavour to use.
-                     Currently supported: "BetaVAE", "BetaTCVAE", "FactorVAE".
-        early_stopping_min_delta: Min delta parameter for the early stopping callback of the MIST model.
-        early_stopping_patience: Patience parameter for the early stopping callback of the MIST model.
-        mine_network_width: The script uses the default implemented MINE statistics network.
-                            This specified the width to be used.
-        mist_batch_size: Batch size for training MIST.
-        mine_learning_rate: Learning rate for training `MINE`.
-                            Should be around `1e-4`.
-        manifold_learning_rate: Learning rate for optimising over the Stiefel manifold of projection matrices.
-                                Should be larger, around `1e-2`.
+        n_runs: Number of times to repeat the estimation with MIST to ensure better stability.
+                If n_runs > 1, the median result will be taken.
         mist_max_epochs: Maximum number of epochs for training MIST.
-        lr_scheduler_patience: Patience parameter for the learning rate scheduler of the MIST model.
-        lr_scheduler_min_delta: Min delta parameter for the learning rate scheduler of the MIST model.
-        n_gmm_components: Number of GMM components to use when fitting a GMM model to the marginal distributions
-                          over the latent factors given the encoder.
-                          This is used for sampling.
         plot_nrows: Number of rows to plot when plotting generated images and reconstructions by the VAE.
         plot_ncols: Number of columns to plot when plotting generated images and reconstructions by the VAE.
         seed: The random seed.
         gpus: The `gpus` parameter for Pytorch Lightning.
-        num_workers:  The `num_workers` parameter for Pytorch Lightning data modules.
     """
 
     dataset: str
@@ -80,204 +55,356 @@ class MISTConfig:
     file_paths_y: Tuple[str, str, str]
     vae_model_file_paths: List[str]
     subspace_sizes: Tuple[List[int], List[int]] = ([1, 2], [1, 2])
-    model_class: str = "BetaVAE"
-    early_stopping_min_delta: float = 5e-3
-    early_stopping_patience: int = 12
-    mine_network_width: int = 128
-    mine_subspace_network_width: int = 128
-    mist_batch_size: int = 128
-    mine_learning_rate: float = 1e-4
-    manifold_learning_rate: float = 1e-2
+    fitting_N: int = 8000
+    n_runs: int = 5
     mist_max_epochs: int = 256
-    lr_scheduler_patience: int = 6
-    lr_scheduler_min_delta: float = 5e-3
     seed: int = 1
     gpus: int = 1
-    num_workers: int = 6
 
 
-def _load_data(
-    cfg: MISTConfig,
-) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-    """
-    Load the data of the specified dataset.
-    Args:
-        cfg: The configuration object of the experiment.
-
-    Returns:
-        Two tuples; the first one is the observation data split into the train, validation, and test splits, and the
-        second one is the latent-factor data split into the same splits.
-    """
-    print("Loading the data.")
-
-    X_train = torch.from_numpy(np.load(cfg.file_paths_x[0])).float()
-    Y_train = torch.from_numpy(np.load(cfg.file_paths_y[0])).float()
-    X_val = torch.from_numpy(np.load(cfg.file_paths_x[1])).float()
-    Y_val = torch.from_numpy(np.load(cfg.file_paths_y[1])).float()
-    X_test = torch.from_numpy(np.load(cfg.file_paths_x[2])).float()
-    Y_test = torch.from_numpy(np.load(cfg.file_paths_y[2])).float()
-
-    if cfg.dataset in ["celeba", "shapes3d"]:
-        X_train /= 255
-        X_val /= 255
-        X_test /= 255
-
-    print("Data loaded.")
-    return (X_train, X_val, X_test), (Y_train, Y_val, Y_test)
-
-
-def _get_dataset_module(cfg: MISTConfig) -> Any:
-    """Returns the module to use for various utilities according to the dataset."""
-    if cfg.dataset == "celeba":
-        return celeba
-    elif cfg.dataset == "shapes3d":
-        return shapes3d
-
-
-def _train_mist(
+def _evaluate_subspace_factor_information(
     Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
-    subspace_size: Tuple[int, int],
-    fit_subspace: bool,
+    A: torch.Tensor,
+    train_ixs: Dict[MIEstimationMethod, List[int]],
+    pair_id: Tuple[int, int],
+    ix: int,
+    subspace_size: int,
+    subspace_method: str,
+    experiment_results: Dict[str, float],
     cfg: MISTConfig,
-) -> mist_estimation.MISTResult:
-    """
-    Trains a MIST model to find the optimal subspace of dimensionality `subspace_size` about the factors captured in `Y`
-    Args:
-        Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
-        Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
-        subspace_size: The current size of the subspace considered.
-        cfg: The configuration object of the experiment.
+) -> Dict[MIEstimationMethod, Dict[str, float]]:
 
-    Returns:
-        The MIST estimation result
-
-    """
-
-    print("Training MIST.")
-    mi_estimation_result = mist_estimation.find_subspace(
-        X=Z,
-        Z_max=Y,
-        data_presplit=True,
-        datamodule_kwargs=dict(num_workers=cfg.num_workers, batch_size=cfg.mist_batch_size),
-        model_kwargs=dict(
-            x_size=Z["train"].shape[1],
-            z_max_size=Y["train"].shape[1],
-            subspace_size=subspace_size,
-            model_comparison=True,
-            mine_network_width=cfg.mine_network_width,
-            mine_learning_rate=cfg.mine_learning_rate,
-            manifold_learning_rate=cfg.manifold_learning_rate,
-            lr_scheduler_patience=cfg.lr_scheduler_patience,
-            lr_scheduler_min_delta=cfg.lr_scheduler_min_delta,
-            verbose=False,
-        ),
-        trainer_kwargs=dict(
-            max_epochs=cfg.mist_max_epochs,
-            enable_progress_bar=False,
-            enable_model_summary=True,
-            gpus=cfg.gpus,
-        ),
+    methods = (
+        [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
+        if subspace_size == 1
+        else [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
     )
+    result = {
+        method: space_evaluation.evaluate_space_with_mutual_information(
+            Z=Z["val"],
+            Y=Y["val"],
+            A=A,
+            ixs=train_ixs[method],
+            dataset=cfg.dataset,
+            factors_of_interest=cfg.factors_of_interest,
+            method=method,
+            standardise=False,
+        )
+        for method in methods
+    }
 
-    print("Training MIST done.\n\n")
+    for method, factor in product(methods, cfg.factors_of_interest):
+        experiment_results[
+            f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method})"
+        ] = result[method][factor]
+        print(
+            f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method}) = "
+            f"{result[method][factor]}"
+        )
 
-    return mi_estimation_result
+    return result
+
+
+def _compute_factor_information_spearman_correlation(
+    pair_id: Tuple[int, int],
+    results: Tuple[Dict[MIEstimationMethod, Dict[str, float]], Dict[MIEstimationMethod, Dict[str, float]]],
+    subspace_method: str,
+    subspace_size: Tuple[int, int],
+    factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
+    experiment_results: Dict[str, float],
+) -> None:
+
+    for method in [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]:
+        full_space_mis = np.asarray(
+            list(factor_information[pair_id[0]][method].values())
+            + list(factor_information[pair_id[1]][method].values())
+        )
+        subspace_mis = np.asarray(list(results[0][method].values()) + list(results[1][method].values()))
+
+        rho = stats.spearmanr(full_space_mis, subspace_mis).correlation
+        experiment_results[f"rho({subspace_method} | pair={pair_id}, method={str(method)}, size={subspace_size})"] = rho
+        print(f"rho({subspace_method} | pair={pair_id}, method={str(method)}, size={subspace_size}) = {rho}")
+
+
+def _plot_latent_traversals(
+    X: torch.Tensor,
+    Zs: Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]],
+    pair_id: Tuple[int, int],
+    As: Tuple[torch.Tensor, torch.Tensor],
+    models: Tuple[VAE, VAE],
+    subspace_method: str,
+    subspace_size: Tuple[int, int],
+    device: str,
+    seed: int,
+) -> None:
+
+    for ix, Z, A, model in zip(pair_id, Zs, As, models):
+        space_evaluation.subspace_latent_traversals(
+            Z=Z["val"],
+            A=A,
+            trained_model=model,
+            X=X,
+            device=device,
+            standardise=False,
+            rng=seed,
+            file_name=f"subspace_latent_traversals_m{ix}_p{pair_id}_size{subspace_size}_{subspace_method}.png",
+        )
+
+
+def _plot_heatmaps_and_trends(
+    Zs: Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]],
+    pair_id: Tuple[int, int],
+    Y: Dict[str, torch.Tensor],
+    As: Tuple[torch.Tensor, torch.Tensor],
+    factors_of_interest: List[str],
+    dataset: str,
+    subspace_method: str,
+    subspace_size: Tuple[int, int],
+) -> None:
+
+    for ix, Z, A in zip(pair_id, Zs, As):
+        if A.shape[1] <= 2:
+            space_evaluation.subspace_heatmaps(
+                Z["val"],
+                Y["val"][:, [dsutils.get_dataset_module(dataset).attribute2idx[a] for a in factors_of_interest]],
+                A,
+                attribute_names=factors_of_interest,
+                interpolate=True,
+                file_name=f"factor_heatmap_m{ix}_p{pair_id}_size{subspace_size}_{subspace_method}.png",
+            )
 
 
 def _process_subspace(
+    X: Dict[str, torch.Tensor],
     Z_1: Dict[str, torch.Tensor],
     Z_2: Dict[str, torch.Tensor],
     pair_id: Tuple[int, int],
+    models: Tuple[VAE, VAE],
     Y: Dict[str, torch.Tensor],
+    A_1: torch.Tensor,
+    A_2: torch.Tensor,
+    subspace_method: str,
+    factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
     experiment_results: Dict[str, float],
-    subspace_result: mist_estimation.MISTResult,
     cfg: MISTConfig,
+    rng: dsutils.RandomGenerator,
 ):
 
-    A_hat = subspace_result.A_1.detach().cpu()
-    B_hat = subspace_result.A_2.detach().cpu()
+    print(f"Processing the {(A_1.shape[1], A_2.shape[1])}-dimensional subspaces found by {subspace_method}.")
 
-    subspace_size = (A_hat.shape[1], B_hat.shape[1])
+    factor_mutual_information_results = []
 
-    print(f"Processing the {subspace_size}-dimensional subspaces.")
+    # Select a new set of indexes for evaluation
+    train_ixs = rng.choice(len(Z_1["val"]), size=cfg.fitting_N, replace=False)  # len(Z_1["val"]) == len(Z_2["val"])
+    latte_ksg_train_ixs = rng.choice(len(Z_1["val"]), size=2000, replace=False)  # len(Z_1["val"]) == len(Z_2["val"])
+    for ix, Z, A, subspace_size in zip(pair_id, [Z_1, Z_2], [A_1, A_2], (A_1.shape[1], A_2.shape[1])):
+        print(f"Estimating the information about factors of interest in the subspaces for model {ix}.")
 
-    Z_1_projected = {split: Z_1[split] @ A_hat.detach().cpu() for split in Z_1}
-    Z_2_projected = {split: Z_2[split] @ B_hat.detach().cpu() for split in Z_2}
-
-    for factor_of_interest in cfg.factors_of_interest:
-        for kk, Z in enumerate([Z_1_projected, Z_2_projected]):
-            print(f"Estimating the information about {factor_of_interest} in the subspaces for model {kk}.")
-            factor_result_1 = _train_mist(
-                Z={"train": Z["train"], "val": Z["val"], "test": Z["test"]},
-                Y={
-                    "train": Y["train"][:, [_get_dataset_module(cfg).attribute2idx[factor_of_interest]]],
-                    "val": Y["val"][:, [_get_dataset_module(cfg).attribute2idx[factor_of_interest]]],
-                    "test": Y["test"][:, [_get_dataset_module(cfg).attribute2idx[factor_of_interest]]],
-                },
-                subspace_size=(Z["train"].shape[1], 1),
-                fit_subspace=False,
-                cfg=cfg,
+        if subspace_size < Z["val"].shape[1]:
+            # Estimate the mutual information with each of the available methods
+            # but only if the subspace is not the entire representation space (otherwise, it was already computed)
+            factor_mutual_information_results.append(
+                _evaluate_subspace_factor_information(
+                    Z=Z,
+                    Y=Y,
+                    A=A,
+                    train_ixs={
+                        MIEstimationMethod.KSG: train_ixs,
+                        MIEstimationMethod.LATTE_KSG: latte_ksg_train_ixs,
+                        MIEstimationMethod.MIST: train_ixs,
+                        MIEstimationMethod.SKLEARN: train_ixs,
+                    },
+                    pair_id=pair_id,
+                    ix=ix,
+                    subspace_size=subspace_size,
+                    subspace_method=subspace_method,
+                    experiment_results=experiment_results,
+                    cfg=cfg,
+                )
             )
-            mi = factor_result_1.mutual_information
-            experiment_results[f"I(R{pair_id[kk]}, {factor_of_interest} | subspace_sizes={subspace_size})"] = mi
-            print(f"I(R{pair_id[kk]}, {factor_of_interest} | subspace_sizes={subspace_size}) = {mi:.3f}.")
+
+            subspace_mutual_information = space_evaluation.subspace_mutual_information(
+                Z["val"], train_ixs, A, standardise=False
+            )
+            subspace_entropy = space_evaluation.subspace_entropy(Z["val"], train_ixs, A, standardise=False)
+            experiment_results[
+                f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
+            ] = subspace_mutual_information
+            experiment_results[
+                f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
+            ] = subspace_entropy
+            print(
+                f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = "
+                f"{subspace_mutual_information}."
+            )
+            print(f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = {subspace_entropy}.")
+
+        else:
+            # Just use the already-computed values
+            factor_mutual_information_results.append(factor_information[ix])
+
+    _compute_factor_information_spearman_correlation(
+        pair_id=pair_id,
+        results=(factor_mutual_information_results[0], factor_mutual_information_results[1]),
+        subspace_method=subspace_method,
+        subspace_size=(A_1.shape[1], A_2.shape[1]),
+        factor_information=factor_information,
+        experiment_results=experiment_results,
+    )
+
+    _plot_latent_traversals(
+        Zs=(Z_1, Z_2),
+        pair_id=pair_id,
+        X=X["val"],
+        As=(A_1, A_2),
+        models=models,
+        subspace_method=subspace_method,
+        subspace_size=(A_1.shape[1], A_2.shape[1]),
+        seed=cfg.seed,
+        device="cuda" if cfg.gpus > 0 else "cpu",
+    )
+
+    _plot_heatmaps_and_trends(
+        Zs=(Z_1, Z_2),
+        pair_id=pair_id,
+        Y=Y,
+        As=(A_1, A_2),
+        factors_of_interest=cfg.factors_of_interest,
+        dataset=cfg.dataset,
+        subspace_method=subspace_method,
+        subspace_size=(A_1.shape[1], A_2.shape[1]),
+    )
+
+
+def _compute_information_about_factors(
+    Z: List[torch.Tensor],
+    Y: torch.Tensor,
+    cfg: MISTConfig,
+    rng: dsutils.RandomGenerator,
+) -> List[Dict[MIEstimationMethod, Dict[str, float]]]:
+    """
+    Computes the mutual information about all factors of interest contained in each of the representations in Z
+    with MIST.
+    Args:
+        Z: Representations constructed by each of the models in consideration.
+        Y: Values of the factors of interest.
+        cfg: The script configuration.
+        rng: Random generator.
+    Returns:
+        A list of dictionaries.
+        Each element of the list is a dictionary specifying how much information about each of the factors is contained
+        in the representation space at that index.
+    """
+
+    train_ixs = rng.choice(len(Y), size=cfg.fitting_N, replace=False)
+    latte_ksg_train_ixs = rng.choice(len(Y), size=2000, replace=False)
+
+    return [
+        {
+            method: space_evaluation.evaluate_space_with_mutual_information(
+                z,
+                Y,
+                train_ixs if method != MIEstimationMethod.LATTE_KSG else latte_ksg_train_ixs,
+                cfg.dataset,
+                cfg.factors_of_interest,
+                method=method,
+                standardise=False,
+            )
+            for method in [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
+        }
+        for z in Z
+    ]
 
 
 def _process_latent_representations(
+    X: Dict[str, torch.Tensor],
     Z: Dict[str, List[torch.Tensor]],
     Y: Dict[str, torch.Tensor],
+    models: List[VAE],
     experiment_results: Dict[str, float],
-    subspace_sizes: Tuple[List[int], List[int]],
+    factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
     cfg: MISTConfig,
-    device: str,
     rng: dsutils.RandomGenerator,
 ) -> None:
     """
-    Finds the optimal subspace capturing the most information about the set of factors of interest specified.
-    It trains a MIST model on the *entire* VAE representation space to figure out how much information is captured
-    in the entire space, and then find the optimal linear subspaces capturing as much information as possible about the
-    factors, for each dimensionality specified in the config.
+
     Args:
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
         experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
-        device: The device to load the data to.
         rng: The random generator.
     """
 
-    # To find out how much information about the factors of interest there is in the entire learned representation
-    # space, we train a MIST model on the entire space
-    # This is done on the *entire* dataset
+    train_ixs = rng.choice(len(Z["val"][0]), size=cfg.fitting_N, replace=False)
+    cca_subspaces_done = set([])
+
     print("Training MIST to determine the mutual information between the representations.")
     for ii, jj in product(range(len(Z["train"])), range(len(Z["train"]))):
         if ii >= jj:
             continue
         # Consider all specified subspaces sizes and the full representation spaces
         for s1, s2 in product(
-            [Z["train"][ii].shape[1]] + subspace_sizes[0], [Z["train"][jj].shape[1]] + subspace_sizes[1]
+            [Z["train"][ii].shape[1]] + cfg.subspace_sizes[0], [Z["train"][jj].shape[1]] + cfg.subspace_sizes[1]
         ):
             print(f"Looking into subspaces of size {(s1, s2)}.")
 
-            comparison_result = _train_mist(
-                Z={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
-                Y={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},
+            A_1, _, A_2, _, mi = model_comparison.find_common_subspaces_with_mutual_information(
+                Z_1=Z["val"][ii],
+                Z_2=Z["val"][jj],
+                ixs=train_ixs,
                 subspace_size=(s1, s2),
-                fit_subspace=(Z["train"][ii].shape[1], Z["train"][jj].shape[1]) != (s1, s2),
-                cfg=cfg,
+                standardise=False,
+                max_epochs=cfg.mist_max_epochs,
+                gpus=cfg.gpus,
             )
-            mi = comparison_result.mutual_information
             print(f"The information between the representations of model {ii} and {jj} is {mi}")
             experiment_results[f"I(R{ii}, R{jj} | subspace_sizes={(s1, s2)} )"] = mi
+
             _process_subspace(
+                X=X,
                 Z_1={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
                 Z_2={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},
                 Y=Y,
                 pair_id=(ii, jj),
+                models=(models[ii], models[jj]),
+                A_1=A_1,
+                A_2=A_2,
+                subspace_method="mist",
+                factor_information=factor_information,
                 experiment_results=experiment_results,
-                subspace_result=comparison_result,
                 cfg=cfg,
+                rng=rng,
+            )
+
+            if s1 != s2 or s1 in cca_subspaces_done:
+                continue
+
+            cca_subspaces_done.add(s1)
+
+            A_1, _, A_2, _ = model_comparison.find_common_subspaces_with_correlation(
+                Z_1=Z["val"][ii].numpy(),
+                Z_2=Z["val"][jj].numpy(),
+                ixs=train_ixs,
+                subspace_size=s1,
+                standardise=False,
+            )
+
+            _process_subspace(
+                X=X,
+                Z_1={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
+                Z_2={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},
+                Y=Y,
+                pair_id=(ii, jj),
+                models=(models[ii], models[jj]),
+                A_1=A_1,
+                A_2=A_2,
+                subspace_method="CCA",
+                factor_information=factor_information,
+                experiment_results=experiment_results,
+                cfg=cfg,
+                rng=rng,
             )
 
             print("\n---------------------------------------------------------------\n\n\n")
@@ -294,19 +421,21 @@ def main(cfg: MISTConfig):
     pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
 
-    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = _load_data(cfg)
+    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = dsutils.load_split_data(
+        cfg.file_paths_x, cfg.file_paths_y, cfg.dataset
+    )
 
     device = "cuda" if cfg.gpus > 0 else "cpu"
 
     # Load the trained VAE
-    trained_models = [
+    models = [
         AutoModel.load_from_folder(vae_model_file_path).to(device) for vae_model_file_path in cfg.vae_model_file_paths
     ]
 
     # Get the latent representations given by the original VAE
-    Z_trains = [vae_utils.get_latent_representations(trained_model, X_train) for trained_model in trained_models]
-    Z_vals = [vae_utils.get_latent_representations(trained_model, X_val) for trained_model in trained_models]
-    Z_tests = [vae_utils.get_latent_representations(trained_model, X_test) for trained_model in trained_models]
+    Z_trains = [vae_utils.get_latent_representations(trained_model, X_train) for trained_model in models]
+    Z_vals = [vae_utils.get_latent_representations(trained_model, X_val) for trained_model in models]
+    Z_tests = [vae_utils.get_latent_representations(trained_model, X_test) for trained_model in models]
 
     for ii in range(len(Z_trains)):
         full_scaler = StandardScaler().fit(Z_trains[ii].numpy())
@@ -314,14 +443,22 @@ def main(cfg: MISTConfig):
         Z_vals[ii] = torch.from_numpy(full_scaler.transform(Z_vals[ii].numpy())).float()
         Z_tests[ii] = torch.from_numpy(full_scaler.transform(Z_tests[ii].numpy())).float()
 
+    for ii in range(len(Z_trains)):
+        visualisation.graphically_evaluate_model(
+            models[ii], X_val, Z_vals[ii], file_prefix=f"model_{ii}", device=device
+        )
+
+    factor_information = _compute_information_about_factors(Z_vals, Y_val, cfg, rng)
+
     _process_latent_representations(
-        {"train": Z_trains, "val": Z_vals, "test": Z_tests},
-        {"train": Y_train, "val": Y_val, "test": Y_test},
-        experiment_results,
-        cfg.subspace_sizes,
-        cfg,
-        device,
-        rng,
+        X={"train": X_train, "val": X_val, "test": X_test},
+        Z={"train": Z_trains, "val": Z_vals, "test": Z_tests},
+        Y={"train": Y_train, "val": Y_val, "test": Y_test},
+        models=models,
+        experiment_results=experiment_results,
+        factor_information=factor_information,
+        cfg=cfg,
+        rng=rng,
     )
 
     print("Finished.")

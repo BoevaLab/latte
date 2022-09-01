@@ -941,9 +941,11 @@ def factor_trend(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
+    interpolate: bool = True,
     k: int = 5,
     N: int = 4000,
     q: float = 0.05,
+    attribute_names: Optional[List[str]] = None,
     file_name: Optional[str] = None,
     rng: RandomGenerator = 42,
 ) -> None:
@@ -974,29 +976,53 @@ def factor_trend(
     rng = np.random.default_rng(rng)
 
     if target == "learned":
+        assert Y.shape[1] == 1
         # Plot Z against Y
         X = Y
         T = Z
+
+        xlabel, ylabel = "Factor", "Learned Dimension"
     else:
         # Plot Y against Z
+        assert Z.shape[1] == 1
         X = Z
         T = Y
 
-    regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T)
-
-    # Generate a uniform sample from the range of `X`
-    x = np.sort(rng.uniform(low=-1, high=1, size=(N,)) * np.asarray([torch.quantile(X, 1 - q) - torch.quantile(X, q)]))
-    # Compute the values of the variable in `T` for the sampled points based on kNN
-    t = regressor.predict(x.reshape(-1, 1))
-
-    fig, ax = plt.subplots(figsize=(3.25, 3.25), dpi=200)
-    ax.plot(x, t, label="Latent dimension")
-
-    if target == "learned":
         xlabel, ylabel = "Learned Dimension", "Factor"
-    else:
-        xlabel, ylabel = "Factor", "Learned Dimension"
-    ax.set(xlabel=xlabel, ylabel=ylabel)
+
+    fig, ax = plt.subplots(nrows=1, ncols=len(attribute_names), figsize=(2 * len(attribute_names), 2), dpi=120)
+
+    rng = np.random.default_rng(rng)
+
+    for jj in range(len(attribute_names)):
+
+        X_jj, T_jj = (X, T[:, jj]) if target == "ground-truth" else (X[:, [jj]], T)
+
+        if interpolate:
+            regressor = KNeighborsRegressor(n_neighbors=k).fit(X_jj, T_jj)
+
+            # Generate a uniform sample from the range of `X`
+            x = np.sort(
+                rng.uniform(low=-1, high=1, size=(N,))
+                * np.asarray([torch.quantile(X_jj, 1 - q) - torch.quantile(X_jj, q)])
+            )
+            # Compute the values of the variable in `T[:, jj` for the sampled points based on kNN
+            t = regressor.predict(x.reshape(-1, 1))
+
+        else:
+            ixs = rng.choice(len(X), size=min(N, len(X)), replace=False)
+            x = X_jj[ixs]
+            t = T_jj[ixs]
+
+        ax[jj].plot(x, t, label="Latent dimension")
+        ax[jj].set(
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=attribute_names[jj] if attribute_names is not None else "",
+        )
+        ax[jj].get_xaxis().set_ticks([])
+        ax[jj].get_yaxis().set_ticks([])
+        ax[jj].tick_params(labelsize=6)
 
     fig.tight_layout()
 
@@ -1049,23 +1075,24 @@ def factor_heatmap(
         X = Y
         T = Z
 
-        axis_name = "Learned Dimension"
+        axis_name = "Factor"
     else:
         # Plot Y against Z
         assert Z.shape[1] == 2
         X = Z
         T = Y
 
-        axis_name = "Factor"
+        axis_name = "Learned Dimension"
 
-    fig, ax = plt.subplots(nrows=1, ncols=T.shape[1], figsize=(2 * T.shape[1], 2), dpi=120)
+    fig, ax = plt.subplots(nrows=1, ncols=len(attribute_names), figsize=(2 * len(attribute_names), 2), dpi=120)
 
     rng = np.random.default_rng(rng)
 
-    for jj in range(T.shape[1]):
+    for jj in range(len(attribute_names)):
+        X_jj, T_jj = (X, T[:, jj]) if target == "ground-truth" else (X[:, [jj]], T)
 
         if interpolate:
-            regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T[:, jj])
+            regressor = KNeighborsRegressor(n_neighbors=k).fit(X_jj, T_jj)
 
             # Generate a uniform sample from the range of `X`
             x = rng.uniform(low=-1, high=1, size=(N, 2)) * np.asarray(
@@ -1075,13 +1102,13 @@ def factor_heatmap(
                 ]
             )
 
-            # Compute the values of the variable in `T` for the sampled points based on kNN
+            # Compute the values of the variable in `T[:, jj]` for the sampled points based on kNN
             t = regressor.predict(x)
 
         else:
             ixs = rng.choice(len(X), size=min(N, len(X)), replace=False)
-            x = X[ixs]
-            t = T[ixs, jj]
+            x = X_jj[ixs]
+            t = T_jj[ixs]
 
         ax[jj].scatter(x[:, 0], x[:, 1], c=t, cmap="jet", s=3, label=t)
         ax[jj].set(
@@ -1131,3 +1158,47 @@ def generated_images(
         plt.close()
     else:
         plt.show()
+
+
+def graphically_evaluate_model(
+    model: VAE,
+    X: torch.Tensor,
+    Z: torch.Tensor,
+    starting_x: Optional[torch.Tensor] = None,
+    starting_xs: Optional[List[torch.Tensor]] = None,
+    homotopy_n: int = 3,
+    nrows: int = 4,
+    ncols: int = 6,
+    rng: RandomGenerator = 1,
+    device: str = "cuda",
+    file_prefix: Optional[str] = None,
+) -> None:
+
+    rng = np.random.default_rng(rng)
+
+    vae_reconstructions(
+        dataset=X,
+        vae_model=model,
+        nrows=nrows,
+        ncols=ncols,
+        cmap=None,
+        rng=rng,
+        file_name=file_prefix + "_reconstructions.png" if file_prefix is not None else None,
+    )
+
+    latent_traversals(
+        vae_model=model,
+        starting_x=starting_x if starting_x is not None else X[rng.choice(len(X))].to(device),
+        Z=Z,
+        n_values=ncols,
+        n_axes=nrows,
+        cmap=None,
+        file_name=file_prefix + "_traversals.png" if file_prefix is not None else None,
+    )
+
+    homotopies(
+        vae_model=model,
+        xs=starting_xs if starting_xs is not None else [X[rng.choice(len(X))].to(device) for _ in range(homotopy_n)],
+        n_cols=6,
+        file_name=file_prefix + "_homotopies.png" if file_prefix is not None else None,
+    )

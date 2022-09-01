@@ -337,7 +337,7 @@ def _compute_predictability_of_attributes(
         ["linear", "nonlinear"],
         [linear_model.SGDClassifier(loss="log_loss", random_state=1), svm.SVC(C=0.1, random_state=1)],
     ):
-        prediction_result = space_evaluation.evaluate_with_a_model(
+        prediction_result = space_evaluation.evaluate_space_with_a_model(
             Z_val_projected[predictor_train_ixs],
             Y_val_c[predictor_train_ixs],
             Z_val_projected[list(set(range(len(Z_val_projected))) - set(predictor_train_ixs))],
@@ -693,6 +693,36 @@ def _find_subspace(
     print("\n ------------------------------------------------------------------------------ \n\n\n")
 
 
+def _fit_gmm(
+    X: torch.Tensor,
+    Z: torch.Tensor,
+    trained_model: VAE,
+    cfg: MISTConfig,
+    experiment_results: Dict[str, float],
+):
+
+    # Fit a GMM model on the produced latent space
+    print("Fitting the GMM on the original latent space.")
+    gmm_sampler = GaussianMixtureSampler(
+        sampler_config=GaussianMixtureSamplerConfig(n_components=cfg.n_gmm_components), model=trained_model
+    )
+    gmm_sampler.fit(X)
+    print("Fitting the GMM on the original latent space done.")
+
+    # Generate a sample of images based on the fit sampler, plot, and save them.
+    visualisation.generated_images(
+        gmm_sampler.sample(num_samples=cfg.plot_nrows * cfg.plot_ncols),
+        cfg.plot_nrows,
+        cfg.plot_ncols,
+        file_name="generated_images_full_model.png",
+    )
+
+    # Compute the log likelihood of the validation data according to the sampler
+    org_ll = gmm_sampler.gmm.score(Z)
+    print(f"The log likelihood of the validation data is {org_ll}.")
+    experiment_results["Original model validation log likelihood"] = org_ll
+
+
 def _process_factors_of_interest(
     X: Dict[str, torch.Tensor],
     Z: Dict[str, torch.Tensor],
@@ -885,26 +915,7 @@ def main(cfg: MISTConfig):
     Z_val = torch.from_numpy(full_scaler.transform(Z_val.numpy())).float()
     Z_test = torch.from_numpy(full_scaler.transform(Z_test.numpy())).float()
 
-    # Fit a GMM model on the produced latent space
-    print("Fitting the GMM on the original latent space.")
-    gmm_sampler = GaussianMixtureSampler(
-        sampler_config=GaussianMixtureSamplerConfig(n_components=cfg.n_gmm_components), model=trained_model
-    )
-    gmm_sampler.fit(X_val)
-    print("Fitting the GMM on the original latent space done.")
-
-    # Generate a sample of images based on the fit sampler, plot, and save them.
-    visualisation.generated_images(
-        gmm_sampler.sample(num_samples=cfg.plot_nrows * cfg.plot_ncols),
-        cfg.plot_nrows,
-        cfg.plot_ncols,
-        file_name="generated_images_full_model.png",
-    )
-
-    # Compute the log likelihood of the validation data according to the sampler
-    org_ll = gmm_sampler.gmm.score(Z_val)
-    print(f"The log likelihood of the validation data is {org_ll}.")
-    experiment_results["Original model validation log likelihood"] = org_ll
+    _fit_gmm(X=X_val, Z=Z_val, trained_model=trained_model, cfg=cfg, experiment_results=experiment_results)
 
     # Plot the latent traversals
     visualisation.latent_traversals(

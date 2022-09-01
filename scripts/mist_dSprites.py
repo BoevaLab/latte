@@ -446,7 +446,7 @@ def main(cfg: MISTdSpritesConfig):
             f"the {cfg.subspace_size}-dimensional subspace and {factor_name} is {subspace_mi: .3f}."
         )
 
-        A_hat = constrained_training_result.A.to(device)
+        A_hat = constrained_training_result.A_1.to(device)
 
         logging.info(f"The estimate projection matrix A_hat onto the linear subspace capturing {factor_name}:")
         print(A_hat)

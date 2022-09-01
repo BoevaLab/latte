@@ -130,6 +130,42 @@ def split(
     return D_split
 
 
+def load_split_data(
+    file_paths_x: Tuple[str, str, str],
+    file_paths_y: Tuple[str, str, str],
+    dataset: str,
+) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """
+    Load the data of the specified dataset split into an existing train-validation-test split.
+    Args:
+        file_paths_x: Tuple of the paths to the train, validation, and test splits of the observational files in this
+                      order.
+        file_paths_y: Tuple of the paths to the train, validation, and test splits of the target files in this order.
+        dataset: The dataset to load.
+                 Currently, "shapes3d" and "celeba" are supported.
+
+    Returns:
+        Two tuples; the first one is the observation data split into the train, validation, and test splits, and the
+        second one is the latent-factor data split into the same splits.
+    """
+    print("Loading the data.")
+
+    X_train = torch.from_numpy(np.load(file_paths_x[0])).float()
+    Y_train = torch.from_numpy(np.load(file_paths_y[0])).float()
+    X_val = torch.from_numpy(np.load(file_paths_x[1])).float()
+    Y_val = torch.from_numpy(np.load(file_paths_y[1])).float()
+    X_test = torch.from_numpy(np.load(file_paths_x[2])).float()
+    Y_test = torch.from_numpy(np.load(file_paths_y[2])).float()
+
+    if dataset in ["celeba", "shapes3d"]:
+        X_train /= 255
+        X_val /= 255
+        X_test /= 255
+
+    print("Data loaded.")
+    return (X_train, X_val, X_test), (Y_train, Y_val, Y_test)
+
+
 def get_dataset_module(dataset: str) -> Any:
     from latte.dataset import shapes3d, celeba
 

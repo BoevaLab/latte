@@ -143,7 +143,7 @@ def main(cfg: SyntheticDataManifoldConfig):
     )
 
     # Extract the estimate of the projection matrix
-    A_hat = mi_estimation_result.A.detach().cpu().numpy()
+    A_hat = mi_estimation_result.A_1.detach().cpu().numpy()
 
     # Evaluate the fit
     evaluation_result = evaluation.subspace_fit(dataset.A, A_hat)

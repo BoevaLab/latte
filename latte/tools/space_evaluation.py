@@ -1,19 +1,27 @@
 # TODO (Anej): Documentation
 
-from typing import List, Dict, Protocol, Any, Tuple, Optional
+from typing import List, Dict, Protocol, Any, Optional, Union
+from enum import Enum
 
 import torch
+import numpy as np
 from sklearn import metrics, preprocessing, feature_selection, linear_model, svm
 
 from tqdm import tqdm
 
 from pythae.models import VAE
 
-from latte.models.cca import estimation as cca_estimation
 from latte.utils import ksg_estimator, visualisation
 from latte.dataset import utils as ds_utils
 from latte.tools import model_comparison
 from latte import ksg
+
+
+class MIEstimationMethod(Enum):
+    MIST = "mist"
+    LATTE_KSG = "latte-ksg"
+    KSG = "ksg"
+    SKLEARN = "sklearn"
 
 
 class ScikitModel(Protocol):
@@ -24,7 +32,26 @@ class ScikitModel(Protocol):
         ...
 
 
-def evaluate_with_a_model(
+def _get_Z(
+    Z: torch.Tensor,
+    A: Optional[torch.Tensor] = None,
+    standardise: bool = True,
+    to_numpy: bool = False,
+) -> Union[torch.Tensor, np.ndarray]:
+
+    if standardise:
+        Z = preprocessing.StandardScaler().fit_transform(Z.numpy())
+    else:
+        Z = Z.numpy()
+
+    if A is not None:
+        Z = Z @ A.detach().cpu().numpy()
+        Z = preprocessing.StandardScaler().fit_transform(Z)
+
+    return Z if to_numpy else torch.Tensor(Z).float()
+
+
+def evaluate_space_with_a_model(
     X_train: torch.Tensor,
     y_train: torch.Tensor,
     X_val: torch.Tensor,
@@ -59,52 +86,38 @@ def evaluate_with_a_model(
     )
 
 
-def _train_cca(
-    Z_1: torch.Tensor, Z_2: torch.Tensor, ixs: List[int], subspace_size: int = 1
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-
-    Z_1 = preprocessing.StandardScaler().fit_transform(Z_1.numpy())
-    Z_2 = preprocessing.StandardScaler().fit_transform(Z_2.numpy())
-
-    cca_result = cca_estimation.find_subspace(Z_1[ixs], Z_2[ixs], subspace_size)
-
-    return cca_result.A_1, cca_result.E_1, cca_result.A_2, cca_result.E_2
-
-
 def evaluate_space_with_mutual_information(
     Z: torch.Tensor,
     Y: torch.Tensor,
     ixs: List[int],
     dataset: str,
+    factors_of_interest: List[str],
     A: Optional[torch.Tensor] = None,
-    method: str = "latte-ksg",
+    method: MIEstimationMethod = MIEstimationMethod.LATTE_KSG,
+    standardise: bool = True,
 ) -> Dict[str, float]:
     results = dict()
 
-    Z = (
-        preprocessing.StandardScaler().fit_transform(Z.numpy()) @ A.detach().cpu().numpy()
-        if A is not None
-        else Z.numpy()
-    )
-    Z = preprocessing.StandardScaler().fit_transform(Z)
+    Z = _get_Z(Z, A, standardise, to_numpy=True)
 
-    for attribute in tqdm(ds_utils.get_dataset_module(dataset).attribute_names):
+    # for attribute in tqdm():
+    for attribute in tqdm(factors_of_interest):
 
-        if method == "mist":
-            mi = model_comparison.find_subspaces_with_mutual_information(
+        if method == MIEstimationMethod.MIST:
+            mi = model_comparison.find_common_subspaces_with_mutual_information(
                 torch.from_numpy(Z).float(),
                 Y[:, [ds_utils.get_dataset_module(dataset).attribute2idx[attribute]]],
                 ixs,
                 (Z.shape[1], 1),
                 standardise=False,
             )[-1]
-        elif method == "latte-ksg":
+        elif method == MIEstimationMethod.LATTE_KSG:
             mi = ksg.estimate_mi_ksg(
                 Z[ixs],
                 Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[attribute]]].numpy(),
                 neighborhoods=(5,),
             )[5]
-        elif method == "ksg":
+        elif method == MIEstimationMethod.KSG:
             mi = ksg_estimator.mutual_information(
                 (
                     Z[ixs],
@@ -112,7 +125,7 @@ def evaluate_space_with_mutual_information(
                 ),
                 k=5,
             )
-        elif method == "sklearn":
+        elif method == MIEstimationMethod.SKLEARN:
             assert Z.shape[1] == 1
             mi = feature_selection.mutual_info_regression(
                 Z[ixs], Y[ixs][:, ds_utils.get_dataset_module(dataset).attribute2idx[attribute]].numpy()
@@ -130,37 +143,34 @@ def evaluate_space_with_predictability(
     Y: torch.Tensor,
     ixs: List[int],
     dataset: str,
+    factors_of_interest: List[str],
     A: Optional[torch.Tensor] = None,
     nonlinear: bool = False,
+    standardise: bool = True,
 ) -> Dict[str, float]:
     results = dict()
 
-    Z_projected = (
-        torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z.numpy())).float() @ A.detach().cpu()
-        if A is not None
-        else Z
-    )
-    Z_projected = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_projected)).float()
+    Z = _get_Z(Z, A, standardise, to_numpy=True)
 
-    for attr in tqdm(ds_utils.get_dataset_module(dataset).attribute_names):
+    for attr in tqdm(factors_of_interest):
 
         Y_c = preprocessing.LabelEncoder().fit_transform(Y[:, ds_utils.get_dataset_module(dataset).attribute2idx[attr]])
 
         if nonlinear:
-            r = evaluate_with_a_model(
-                Z_projected[ixs],
+            r = evaluate_space_with_a_model(
+                Z[ixs],
                 Y_c[ixs],
-                Z_projected[list(set(range(len(Z))) - set(ixs))],
+                Z[list(set(range(len(Z))) - set(ixs))],
                 Y_c[list(set(range(len(Z))) - set(ixs))],
                 model=svm.SVC(C=0.1, random_state=1),
                 mode="class",
             )
 
         else:
-            r = evaluate_with_a_model(
-                Z_projected[ixs],
+            r = evaluate_space_with_a_model(
+                Z[ixs],
                 Y_c[ixs],
-                Z_projected[list(set(range(len(Z))) - set(ixs))],
+                Z[list(set(range(len(Z))) - set(ixs))],
                 Y_c[list(set(range(len(Z))) - set(ixs))],
                 model=linear_model.SGDClassifier(loss="log_loss", random_state=1),
                 mode="class",
@@ -173,36 +183,50 @@ def evaluate_space_with_predictability(
 
 def subspace_entropy(
     Z: torch.Tensor,
-    A_hat: torch.Tensor,
     ixs: List[int],
+    A: Optional[torch.Tensor] = None,
+    standardise: bool = True,
 ) -> float:
 
-    Z = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z.numpy())).float() @ A_hat.detach().cpu()
+    Z = _get_Z(Z, A, standardise, to_numpy=False)
 
-    return model_comparison.find_subspaces_with_mutual_information(Z, Z, ixs, (Z.shape[1], Z.shape[1]))[-1]
+    return model_comparison.find_common_subspaces_with_mutual_information(Z, Z, ixs, (Z.shape[1], Z.shape[1]))[-1]
 
 
 def subspace_mutual_information(
     Z: torch.Tensor,
-    A_hat: torch.Tensor,
     ixs: List[int],
+    A: torch.Tensor,
+    standardise: bool = True,
 ) -> float:
 
-    Z_p = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z.numpy())).float() @ A_hat.detach().cpu()
+    Z_p = _get_Z(Z, A, standardise, to_numpy=False)
 
-    return model_comparison.find_subspaces_with_mutual_information(Z, Z_p, ixs, (Z.shape[1], Z_p.shape[1]))[-1]
+    return model_comparison.find_common_subspaces_with_mutual_information(Z, Z_p, ixs, (Z.shape[1], Z_p.shape[1]))[-1]
 
 
 def subspace_latent_traversals(
-    starting_x: torch.Tensor, Z: torch.Tensor, A_hat: torch.Tensor, trained_model: VAE, file_name: Optional[str] = None
+    Z: torch.Tensor,
+    A: torch.Tensor,
+    trained_model: VAE,
+    X: Optional[torch.Tensor] = None,
+    starting_x: Optional[torch.Tensor] = None,
+    standardise: bool = True,
+    rng: ds_utils.RandomGenerator = 1,
+    device: str = "cuda",
+    file_name: Optional[str] = None,
 ) -> None:
 
-    Z = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z.numpy())).float() @ A_hat.detach().cpu()
-    Z = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z)).float()
+    if starting_x is None:
+        assert X is not None
+        rng = np.random.default_rng(rng)
+        starting_x = X[rng.choice(len(X))].to(device)
+
+    Z = _get_Z(Z, A, standardise, to_numpy=False)
 
     visualisation.latent_traversals(
         vae_model=trained_model,
-        A_hat=A_hat.cuda(),
+        A_hat=A.cuda(),
         Z=Z,
         starting_x=starting_x.cuda(),
         n_values=8,
@@ -214,22 +238,31 @@ def subspace_latent_traversals(
 def subspace_heatmaps(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    A_hat: torch.Tensor,
-    dataset: str,
+    A: torch.Tensor,
+    attribute_names: List[str],
+    standardise: bool = True,
+    target: str = "ground-truth",
     interpolate: bool = True,
     N: int = 5000,
+    k: int = 250,
+    q: float = 0.25,
+    file_name: Optional[str] = None,
 ) -> None:
 
-    Z = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z.numpy())).float() @ A_hat.detach().cpu()
-    Z = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z)).float()
+    assert A.shape[1] <= 2
 
-    visualisation.factor_heatmap(
+    Z = _get_Z(Z, A, standardise, to_numpy=False)
+
+    plotting_method = visualisation.factor_heatmap if A.shape[1] == 2 else visualisation.factor_trend
+
+    plotting_method(
         Z,
         Y,
-        target="ground-truth",
+        target=target,
         interpolate=interpolate,
         N=N,
-        k=50,
-        q=0.25,
-        attribute_names=ds_utils.get_dataset_module(dataset).attribute_names,
+        k=k,
+        q=q,
+        attribute_names=attribute_names,
+        file_name=file_name,
     )
