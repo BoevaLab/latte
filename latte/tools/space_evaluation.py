@@ -2,6 +2,7 @@
 
 from typing import List, Dict, Protocol, Any, Optional, Union
 from enum import Enum
+from collections import Counter
 
 import torch
 import numpy as np
@@ -138,6 +139,26 @@ def evaluate_space_with_mutual_information(
     return results
 
 
+def baseline_predictability(
+    Y: torch.Tensor,
+    dataset: str,
+    factors_of_interest: List[str],
+) -> Dict[str, Dict[str, float]]:
+
+    results = dict()
+
+    for attr in tqdm(factors_of_interest):
+
+        Y_c = preprocessing.LabelEncoder().fit_transform(Y[:, ds_utils.get_dataset_module(dataset).attribute2idx[attr]])
+
+        counts = Counter(Y_c)
+        majority = list(counts.keys())[np.argmax(counts.values())] * np.ones(Y_c.shape[0])
+        acc, f1 = metrics.accuracy_score(Y_c, majority), metrics.f1_score(Y_c, majority, average="macro")
+        results[attr] = {"accuracy": round(acc, 3), "f1": round(f1, 3)}
+
+    return results
+
+
 def evaluate_space_with_predictability(
     Z: torch.Tensor,
     Y: torch.Tensor,
@@ -238,8 +259,8 @@ def subspace_latent_traversals(
 def subspace_heatmaps(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    A: torch.Tensor,
     attribute_names: List[str],
+    A: Optional[torch.Tensor] = None,
     standardise: bool = True,
     target: str = "ground-truth",
     interpolate: bool = True,
@@ -249,11 +270,11 @@ def subspace_heatmaps(
     file_name: Optional[str] = None,
 ) -> None:
 
-    assert A.shape[1] <= 2
-
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
-    plotting_method = visualisation.factor_heatmap if A.shape[1] == 2 else visualisation.factor_trend
+    assert Z.shape[1] <= 2
+
+    plotting_method = visualisation.factor_heatmap if Z.shape[1] == 2 else visualisation.factor_trend
 
     plotting_method(
         Z,

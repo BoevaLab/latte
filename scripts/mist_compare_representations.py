@@ -168,7 +168,7 @@ def _plot_heatmaps_and_trends(
             space_evaluation.subspace_heatmaps(
                 Z["val"],
                 Y["val"][:, [dsutils.get_dataset_module(dataset).attribute2idx[a] for a in factors_of_interest]],
-                A,
+                A=A,
                 attribute_names=factors_of_interest,
                 interpolate=True,
                 file_name=f"factor_heatmap_m{ix}_p{pair_id}_size{subspace_size}_{subspace_method}.png",
@@ -445,7 +445,7 @@ def main(cfg: MISTConfig):
 
     for ii in range(len(Z_trains)):
         visualisation.graphically_evaluate_model(
-            models[ii], X_val, Z_vals[ii], file_prefix=f"model_{ii}", device=device
+            models[ii], X_val, Z_vals[ii], file_prefix=f"model_{ii}", device=device, repeats=5
         )
 
     factor_information = _compute_information_about_factors(Z_vals, Y_val, cfg, rng)

@@ -24,24 +24,15 @@ from tqdm import trange
 
 from pythae.pipelines import TrainingPipeline
 from pythae.models import (
-    BetaVAE,
     BetaVAEConfig,
-    BetaTCVAE,
     BetaTCVAEConfig,
     RHVAEConfig,
-    AE,
     AEConfig,
-    FactorVAE,
     FactorVAEConfig,
-    IWAE,
     IWAEConfig,
-    INFOVAE_MMD,
     INFOVAE_MMD_Config,
-    VAMP,
     VAMPConfig,
-    DisentangledBetaVAE,
     DisentangledBetaVAEConfig,
-    RHVAE,
     VAE,
     AutoModel,
     BaseAEConfig,
@@ -295,30 +286,6 @@ def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
     return model_config
 
 
-def _get_vae_class(vae_flavour: str) -> Any:  # noqa: C901
-    """Returns the appropriate model class according to the specification."""
-    if vae_flavour == "RHVAE":
-        return RHVAE
-    elif vae_flavour == "BetaVAE":
-        return BetaVAE
-    elif vae_flavour == "BetaTCVAE":
-        return BetaTCVAE
-    elif vae_flavour == "AE":
-        return AE
-    elif vae_flavour == "FactorVAE":
-        return FactorVAE
-    elif vae_flavour == "IWAE":
-        return IWAE
-    elif vae_flavour == "INFOVAE_MMD":
-        return INFOVAE_MMD
-    elif vae_flavour == "VAMP":
-        return VAMP
-    elif vae_flavour == "DisentangledBetaVAE":
-        return DisentangledBetaVAE
-    else:
-        raise NotImplementedError
-
-
 def _get_model(cfg: VAETrainConfig) -> VAE:
     """
     Constructs the model to be trained based on the script configuration.
@@ -334,7 +301,7 @@ def _get_model(cfg: VAETrainConfig) -> VAE:
     # Get the component classes
     Encoder, Decoder = _get_model_classes(cfg.dataset, cfg.network_type)
     # Get the full model class
-    Vae = _get_vae_class(cfg.vae_flavour)
+    Vae = vaeutils.get_vae_class(cfg.vae_flavour)
 
     # Initialise and return the model
     return Vae(

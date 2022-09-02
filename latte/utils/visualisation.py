@@ -35,7 +35,7 @@ top = bottom + height
 def vae_reconstructions(
     dataset: Union[Dataset, torch.Tensor],
     vae_model: VAE,
-    latent_transformation: Optional[Callable] = None,
+    latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     nrows: int = 1,
     ncols: int = 12,
     device: str = "cuda",
@@ -1164,11 +1164,14 @@ def graphically_evaluate_model(
     model: VAE,
     X: torch.Tensor,
     Z: torch.Tensor,
+    A: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
     starting_xs: Optional[List[torch.Tensor]] = None,
+    latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    repeats: int = 5,
     homotopy_n: int = 3,
-    nrows: int = 4,
-    ncols: int = 6,
+    n_rows: int = 4,
+    n_cols: int = 6,
     rng: RandomGenerator = 1,
     device: str = "cuda",
     file_prefix: Optional[str] = None,
@@ -1176,29 +1179,48 @@ def graphically_evaluate_model(
 
     rng = np.random.default_rng(rng)
 
-    vae_reconstructions(
-        dataset=X,
-        vae_model=model,
-        nrows=nrows,
-        ncols=ncols,
-        cmap=None,
-        rng=rng,
-        file_name=file_prefix + "_reconstructions.png" if file_prefix is not None else None,
-    )
+    for ii in range(repeats):
+        vae_reconstructions(
+            dataset=X,
+            vae_model=model,
+            nrows=n_rows,
+            ncols=n_cols,
+            latent_transformation=latent_transformation,
+            cmap=None,
+            rng=rng,
+            file_name=file_prefix + f"_reconstructions_{ii}.png" if file_prefix is not None else None,
+        )
 
-    latent_traversals(
-        vae_model=model,
-        starting_x=starting_x if starting_x is not None else X[rng.choice(len(X))].to(device),
-        Z=Z,
-        n_values=ncols,
-        n_axes=nrows,
-        cmap=None,
-        file_name=file_prefix + "_traversals.png" if file_prefix is not None else None,
-    )
+        latent_traversals(
+            vae_model=model,
+            starting_x=starting_x if starting_x is not None else X[rng.choice(len(X))].to(device),
+            Z=Z,
+            A_hat=A,
+            n_values=n_cols,
+            n_axes=n_rows,
+            cmap=None,
+            file_name=file_prefix + f"_traversals_{ii}.png" if file_prefix is not None else None,
+        )
 
-    homotopies(
-        vae_model=model,
-        xs=starting_xs if starting_xs is not None else [X[rng.choice(len(X))].to(device) for _ in range(homotopy_n)],
-        n_cols=6,
-        file_name=file_prefix + "_homotopies.png" if file_prefix is not None else None,
-    )
+        homotopies(
+            vae_model=model,
+            A=A,
+            xs=starting_xs
+            if starting_xs is not None
+            else [X[rng.choice(len(X))].to(device) for _ in range(homotopy_n)],
+            n_cols=n_cols,
+            file_name=file_prefix + f"_homotopies_{ii}.png" if file_prefix is not None else None,
+        )
+
+        if A is None and Z.shape[1] == 2 or A is not None and A.shape[1] == 2:
+            latent_traversals_2d(
+                vae_model=model,
+                starting_x=X[rng.choice(len(X))].to(device),
+                axis=(0, 1),
+                A_hat=A,
+                Z=Z,
+                n_values=n_cols,
+                device=device,
+                cmap=None,
+                file_name=file_prefix + f"_homotopies_{ii}.png",
+            )

@@ -1,4 +1,3 @@
-# TODO (Anej): If 2D or 3D, add heatmaps and latent space plots with factor values (heatmaps and from the notebook)
 """
 This script trains a supervised MIST model on a supported dataset of images.
 Currently, it works for the `CelebA` and `Shapes3D` datasets.
@@ -6,9 +5,8 @@ It takes the representations of a pre-trained VAE and discovers in them the subs
 capturing the most information about a set of given attributes/latent factors.
 The results are quantified, plotted, and saved.
 """
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Optional, List
 from dataclasses import dataclass, replace, field
-from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -18,31 +16,18 @@ import geoopt
 
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn import metrics, linear_model, svm
 
-from pythae.models import (
-    BetaVAE,
-    BetaTCVAE,
-    AE,
-    FactorVAE,
-    IWAE,
-    INFOVAE_MMD,
-    VAMP,
-    DisentangledBetaVAE,
-    RHVAE,
-    VAE,
-    AutoModel,
-)
+from pythae.models import VAE, AutoModel
 from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 
-from latte.dataset import celeba, shapes3d, utils as dsutils
+from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vaeutils
-from latte.utils import evaluation, visualisation, ksg_estimator
+from latte.utils import evaluation, visualisation
 from latte.models.mist import estimation as mist_estimation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
 from latte.models.vae.projection_vae import ProjectionBaseEncoder, ProjectionBaseDecoder
-from latte.utils import space_evaluation
+from latte.tools import space_evaluation
 import latte.hydra_utils as hy
 
 
@@ -107,23 +92,16 @@ class MISTConfig:
     file_paths_x: Tuple[str, str, str]
     file_paths_y: Tuple[str, str, str]
     vae_model_file_path: str
-    factors_of_interest: List[List[str]] = field(
-        default_factory=lambda: [
-            ["Male"],
-            ["Young"],
-            ["Smiling"],
-            ["Heavy_Makeup"],
-            ["Blond_Hair"],
-        ]
-    )
-    alternative_factors: List[List[str]] = field(default_factory=lambda: [[], [], [], [], []])
+    factors_of_interest: List[List[str]]
+    alternative_factors: List[List[str]]
+    model_class: str
     subspace_sizes: List[int] = field(default_factory=lambda: [1, 2])
     training_fractions: Optional[List[float]] = None
-    training_Ns: Optional[List[int]] = field(default_factory=lambda: [10000])
-    model_class: str = "BetaVAE"
+    training_Ns: Optional[List[int]] = field(default_factory=lambda: [8000])
+    estimation_N: int = 16000
     early_stopping_min_delta: float = 5e-3
     early_stopping_patience: int = 12
-    mine_network_width: int = 256
+    mine_network_width: int = 200
     mist_batch_size: int = 128
     mine_learning_rate: float = 1e-4
     manifold_learning_rate: float = 1e-2
@@ -137,44 +115,6 @@ class MISTConfig:
     seed: int = 1
     gpus: int = 1
     num_workers: int = 6
-
-
-def _load_data(
-    cfg: MISTConfig,
-) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-    """
-    Load the data of the specified dataset.
-    Args:
-        cfg: The configuration object of the experiment.
-
-    Returns:
-        Two tuples; the first one is the observation data split into the train, validation, and test splits, and the
-        second one is the latent-factor data split into the same splits.
-    """
-    print("Loading the data.")
-
-    X_train = torch.from_numpy(np.load(cfg.file_paths_x[0])).float()
-    Y_train = torch.from_numpy(np.load(cfg.file_paths_y[0])).float()
-    X_val = torch.from_numpy(np.load(cfg.file_paths_x[1])).float()
-    Y_val = torch.from_numpy(np.load(cfg.file_paths_y[1])).float()
-    X_test = torch.from_numpy(np.load(cfg.file_paths_x[2])).float()
-    Y_test = torch.from_numpy(np.load(cfg.file_paths_y[2])).float()
-
-    if cfg.dataset in ["celeba", "shapes3d"]:
-        X_train /= 255
-        X_val /= 255
-        X_test /= 255
-
-    print("Data loaded.")
-    return (X_train, X_val, X_test), (Y_train, Y_val, Y_test)
-
-
-def _get_dataset_module(cfg: MISTConfig) -> Any:
-    """Returns the module to use for various utilities according to the dataset."""
-    if cfg.dataset == "celeba":
-        return celeba
-    elif cfg.dataset == "shapes3d":
-        return shapes3d
 
 
 def _train_mist(
@@ -197,8 +137,6 @@ def _train_mist(
     print("Training MIST.")
 
     p_train, p_val = (0.4, 0.2) if fit_subspace else (0.7, 0.1)
-
-    Z = torch.from_numpy(StandardScaler().fit_transform(Z)).float()
 
     mi_estimation_result = mist_estimation.find_subspace(
         X=Z,
@@ -230,35 +168,10 @@ def _train_mist(
     return mi_estimation_result
 
 
-# TODO (Anej)
-def _get_model_class(vae_flavour: str) -> Any:  # noqa: C901
-    """Returns the appropriate model class according to the specification."""
-    if vae_flavour == "RHVAE":
-        return RHVAE
-    elif vae_flavour == "BetaVAE":
-        return BetaVAE
-    elif vae_flavour == "BetaTCVAE":
-        return BetaTCVAE
-    elif vae_flavour == "AE":
-        return AE
-    elif vae_flavour == "FactorVAE":
-        return FactorVAE
-    elif vae_flavour == "IWAE":
-        return IWAE
-    elif vae_flavour == "INFOVAE_MMD":
-        return INFOVAE_MMD
-    elif vae_flavour == "VAMP":
-        return VAMP
-    elif vae_flavour == "DisentangledBetaVAE":
-        return DisentangledBetaVAE
-    else:
-        raise NotImplementedError
-
-
 def _process_alternative_factors(
-    Z: Dict[str, torch.Tensor],
-    Z_train_projected: torch.Tensor,
-    Y: Dict[str, torch.Tensor],
+    Z: torch.Tensor,
+    Z_p: torch.Tensor,
+    Y: torch.Tensor,
     model: VAE,
     method: str,
     factors: List[str],
@@ -271,10 +184,9 @@ def _process_alternative_factors(
 
     for alternative_factor in alternative_factors:
         print(f"Checking how much information about {alternative_factor} was also captured in the subspace.")
-        print("Training MIST on the entire VAE space.")
         full_alternative_factors_result = _train_mist(
-            Z=Z["train"],
-            Y=Y["train"][:, [_get_dataset_module(cfg).attribute2idx[alternative_factor]]],
+            Z=Z,
+            Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[alternative_factor]]],
             subspace_size=model.model_config.latent_dim,
             fit_subspace=False,
             cfg=cfg,
@@ -285,8 +197,8 @@ def _process_alternative_factors(
 
         print(f"Training MIST for {alternative_factor} on the {subspace_size}-dimensional subspace of {factors}.")
         alternative_factors_subspace_result = _train_mist(
-            Z=Z_train_projected,
-            Y=Y["train"][:, [_get_dataset_module(cfg).attribute2idx[alternative_factor]]],
+            Z=Z_p,
+            Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[alternative_factor]]],
             subspace_size=subspace_size,
             fit_subspace=False,
             cfg=cfg,
@@ -299,64 +211,49 @@ def _process_alternative_factors(
 
 
 def _compute_predictability_of_attributes(
-    Z_val_projected: torch.Tensor,
-    Y_val: torch.Tensor,
-    predictor_train_ixs: List[int],
+    Z: torch.Tensor,
+    Y: torch.Tensor,
     method: str,
-    factor: str,
+    factors: List[str],
     subspace_size: int,
     erased: bool,
     estimation_N: int,
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
+    rng: dsutils.RandomGenerator,
 ) -> None:
 
-    # If we are only looking at a single factor, investigate its predictability
-    le = LabelEncoder().fit(Y_val[:, _get_dataset_module(cfg).attribute2idx[factor]])
+    baseline_scores = space_evaluation.baseline_predictability(Y, cfg.dataset, factors)
 
-    Y_val_c = le.transform(Y_val[:, _get_dataset_module(cfg).attribute2idx[factor]])
+    predictor_train_ixs = rng.choice(int(Z.shape[0]), size=cfg.estimation_N, replace=False)
+    factor_predictability = space_evaluation.evaluate_space_with_predictability(
+        Z, Y, predictor_train_ixs, cfg.dataset, factors, nonlinear=False, standardise=False
+    )
 
-    counts = Counter(Y_val_c)
-    majority = list(counts.keys())[np.argmax(counts.values())] * np.ones(Y_val_c.shape[0])
-    acc, f1 = metrics.accuracy_score(Y_val_c, majority), metrics.f1_score(Y_val_c, majority, average="macro")
-    print(f"Naive baseline accuracy = {acc}.")
-    print(f"Naive baseline F1 = {f1}.")
-    experiment_results[f"Naive baseline accuracy ({factor})"] = acc
-    experiment_results[f"Naive baseline F1 score ({factor})"] = f1
-
-    for f in _get_dataset_module(cfg).attribute_names:
-        ksg_mi_estimate = ksg_estimator.mutual_information(
-            (Z_val_projected.numpy(), Y_val[:, [_get_dataset_module(cfg).attribute2idx[f]]].numpy()), k=3
-        )
-        print(f"KSG MI estimate ({f}) = {ksg_mi_estimate}.")
+    for attr in baseline_scores:
         experiment_results[
-            f"KSG MI estimate ({f} | {method}, {subspace_size}, {estimation_N}, {factor}, erased = {erased})"
-        ] = ksg_mi_estimate
+            f"Accuracy({attr} | {subspace_size}, {erased}, {estimation_N}, {method})"
+        ] = factor_predictability[attr]
+        experiment_results[
+            f"Baseline Accuracy({attr} | {subspace_size}, {erased}, {estimation_N}, {method})"
+        ] = baseline_scores[attr]["accuracy"]
 
-    for model_type, model in zip(
-        ["linear", "nonlinear"],
-        [linear_model.SGDClassifier(loss="log_loss", random_state=1), svm.SVC(C=0.1, random_state=1)],
-    ):
-        prediction_result = space_evaluation.evaluate_space_with_a_model(
-            Z_val_projected[predictor_train_ixs],
-            Y_val_c[predictor_train_ixs],
-            Z_val_projected[list(set(range(len(Z_val_projected))) - set(predictor_train_ixs))],
-            Y_val_c[list(set(range(len(Z_val_projected))) - set(predictor_train_ixs))],
-            model=model,
-            mode="class",
-        )
-        print(f"Prediction result with {model_type} = {prediction_result}")
-        for key, value in prediction_result.items():
-            experiment_results[
-                f"Prediction {key} ({method}, {subspace_size}, {estimation_N}, {factor}, erased = {erased})"
-            ] = value
+
+def _project_onto_subspace(Z: torch.Tensor, A: torch.Tensor, standardise: bool = True) -> torch.Tensor:
+
+    # Construct the representations by the projection VAE
+    Z_p = Z @ A.detach().cpu()
+
+    if standardise:
+        Z_p = torch.from_numpy(StandardScaler().fit_transform(Z_p)).float()
+
+    return Z_p
 
 
 def _process_subspace(
-    X: Dict[str, torch.Tensor],
-    Z: Dict[str, torch.Tensor],
-    Y: Dict[str, torch.Tensor],
-    predictor_train_ixs: List[int],
+    X: torch.Tensor,
+    Z: torch.Tensor,
+    Y: torch.Tensor,
     A_hat: geoopt.ManifoldTensor,
     model: VAE,
     method: str,
@@ -396,6 +293,8 @@ def _process_subspace(
     """
     rng = np.random.default_rng(rng)
 
+    evaluation_ixs = rng.choice(len(Z), size=cfg.estimation_N, replace=False)
+
     # `subspace_size` only refers to the dimensionality of the subspace the "maximisation matrix" projects onto
     # In case this function is called with the "erasing" matrix, we keep that dimensionality for logging,
     # but we need to actually use the entire space, wince the erasing matrix is square
@@ -403,87 +302,66 @@ def _process_subspace(
 
     # Construct the VAE model which projects onto the subspace defined by `A_hat`
     # It has the same config as the original model, so we copy it, we just change the `latent_dim`
-    ModelClass = _get_model_class(cfg.model_class)
-    projection_model = ModelClass(
+    projection_model = vaeutils.get_vae_class(cfg.model_class)(
         model_config=replace(model.model_config),
         encoder=ProjectionBaseEncoder(model.encoder, A_hat),
         decoder=ProjectionBaseDecoder(model.decoder, A_hat),
     )
     projection_model.model_config.latent_dim = projection_subspace_size
 
-    # Construct the representations by the projection VAE
-    Z_train_projected = Z["train"] @ A_hat.detach().cpu()
-    Z_val_projected = Z["val"] @ A_hat.detach().cpu()
+    Z_p = _project_onto_subspace(Z, A_hat)
 
-    projected_scaler = StandardScaler().fit(Z_train_projected)
-    Z_train_projected = torch.from_numpy(projected_scaler.transform(Z_train_projected)).float()
-    Z_val_projected = torch.from_numpy(projected_scaler.transform(Z_val_projected)).float()
-
-    # Plot the latent traversals in the subspace
-    visualisation.latent_traversals(
-        vae_model=projection_model,
-        Z=Z_train_projected,
-        starting_x=X["val"][rng.choice(len(X["val"]))].to(device),
-        n_values=cfg.plot_ncols,
-        n_axes=min(projection_subspace_size, cfg.plot_nrows),
-        file_name=f"lat_trav_erased{erased}_{method}_{subspace_size}_{factors}_{estimation_N}.png",
+    _fit_gmm(
+        X=X,
+        Z=Z_p,
+        model=projection_model,
+        cfg=cfg,
+        experiment_results=experiment_results,
+        model_type="projected",
+        file_name=f"generated_images_projected_{method}_"
+        f"{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
     )
 
-    # Plot homotopies
-    starting_xs = [X[rng.choice(len(X))] for _ in range(cfg.plot_n_images)]
-    visualisation.homotopies(
-        vae_model=projection_model,
-        xs=[x.to(device) for x in starting_xs],
-        n_cols=cfg.plot_ncols,
-        device=device,
-        file_name="homotopies_erased{erased}_{method}_{subspace_size}_{factors}_{estimation_N}.png",
-    )
+    for lt, model_type in zip([None, lambda t: t @ A_hat @ A_hat.T], ["full", "projected"]):
+        visualisation.graphically_evaluate_model(
+            model,
+            X,
+            Z,
+            homotopy_n=cfg.plot_n_images,
+            latent_transformation=lt,
+            n_rows=min(projection_subspace_size, cfg.plot_nrows),
+            n_cols=cfg.plot_ncols,
+            repeats=cfg.plot_nrows,
+            rng=rng,
+            device=device,
+            file_prefix=f"m{model_type}_e{erased}_{method}_{subspace_size}_{factors}_{estimation_N}",
+        )
 
     if not erased:
-        if subspace_size == 2:
-            for ii in range(cfg.plot_nrows):
-                visualisation.latent_traversals_2d(
-                    vae_model=model,
-                    starting_x=X["val"][rng.choice(len(X["val"]))].to(device),
-                    axis=(0, 1),
-                    A_hat=A_hat,
-                    Z=Z_train_projected,
-                    n_values=cfg.plot_ncols,
-                    q=((0.000001, 0.999999), (0.000001, 0.999999)),
-                    device=device,
-                    cmap=None,
-                    file_name=f"lat_trav2d_intervened_{method}_{subspace_size}_{factors}_{estimation_N}_{ii}.png",
-                )
-
-        # Intervene on the values of the subspace on a sample of the images to change their features
-        for ii in range(cfg.plot_nrows):
-            visualisation.latent_traversals(
-                vae_model=model,
-                Z=Z_train_projected,
-                A_hat=A_hat,
-                starting_x=X["val"][rng.choice(len(X["val"]))].to(device),
-                n_values=cfg.plot_ncols,
-                q=(0.000001, 0.999999),
-                device=device,
-                cmap=None,
-                n_axes=min(projection_subspace_size, cfg.plot_nrows),
-                file_name=f"lat_trav_intervened_{method}_{subspace_size}_{factors}_{estimation_N}_{ii}.png",
-            )
 
         # Only calculate this for the projected subspace, since the number of dimensions it too large otherwise, so
         # it takes too long
         print("Calculating the mutual information about the factors captured in the axes of the projected subspace.")
         axis_mi = evaluation.axis_factor_mutual_information(
-            Z_val_projected, Y["val"], factor_names=_get_dataset_module(cfg).attribute_names
+            Z_p, Y, factor_names=dsutils.get_dataset_module(cfg.dataset).attribute_names
         )
         print(f"Average amount of information captured about:\n {axis_mi.mean(axis=1).sort_values(ascending=False)}.")
         print(f"Maximum amount of information captured about:\n {axis_mi.max(axis=1).sort_values(ascending=False)}.")
         axis_mi.to_csv(f"axis_factor_mi_{method}_{subspace_size}_{factors}_{estimation_N}.csv")
 
+        if projection_subspace_size <= 2:
+            space_evaluation.subspace_heatmaps(
+                Z_p,
+                Y,
+                attribute_names=factors + alternative_factors,
+                standardise=False,
+                file_name=f"heatmaps_{method}_{subspace_size}_{factors}_{estimation_N}.png",
+            )
+
         _process_alternative_factors(
-            Z,
-            Z_train_projected,
-            Y,
+            Z[evaluation_ixs],
+            Z_p[evaluation_ixs],
+            Y[evaluation_ixs],
             model,
             method,
             factors,
@@ -494,76 +372,33 @@ def _process_subspace(
             cfg,
         )
 
-    # Reconstructions together with their original non-projected reconstructions
-    visualisation.vae_reconstructions(
-        dataset=X["val"],
-        vae_model=model,
-        latent_transformation=lambda z: z @ A_hat @ A_hat.T,
-        nrows=cfg.plot_nrows,
-        ncols=cfg.plot_ncols,
-        file_name=f"reconstructions_transformation_{method}"
-        f"_{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
-    )
-
-    # Construct a sampler from the subspace defined by the projection matrix
-    print("Fitting a GMM on the projected subspace.")
-    projection_gmm_sampler = GaussianMixtureSampler(
-        sampler_config=GaussianMixtureSamplerConfig(n_components=cfg.n_gmm_components), model=projection_model
-    )
-    projection_gmm_sampler.fit(X["val"])
-    print("Fitting a GMM on the projected subspace done.")
-
-    visualisation.generated_images(
-        projection_gmm_sampler.sample(num_samples=cfg.plot_nrows * cfg.plot_ncols),
-        cfg.plot_nrows,
-        cfg.plot_ncols,
-        file_name=f"gen_{method}_{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
-    )
-
-    print(f"Training MIST on the erased = {erased} {method} {subspace_size}-dimensional subspace for {factors}.")
-    subspace_result = _train_mist(
-        Z=Z_train_projected,
-        Y=Y["train"][:, [_get_dataset_module(cfg).attribute2idx[factor_of_interest] for factor_of_interest in factors]],
-        subspace_size=projection_subspace_size
-        if erased
-        else subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
-        fit_subspace=False,
-        cfg=cfg,
-    )
-    mi = subspace_result.mutual_information
-    print(f"The information about {factors} in the projected space is {mi}")
-    experiment_results[f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})"] = mi
-
-    print(
-        "Calculating entropy with MIST on the erased "
-        f"= {erased} {method} {subspace_size}-dimensional subspace for {factors}."
-    )
-    entropy_result = _train_mist(
-        Z=Z_train_projected,
-        Y=Z_train_projected,
-        subspace_size=projection_subspace_size
-        if erased
-        else subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
-        fit_subspace=False,
-        cfg=cfg,
-    )
-    mi = entropy_result.mutual_information
-    print(f"The entropy of the projected space is {mi}")
-    experiment_results[f"H({factors} erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})"] = mi
-
-    if len(factors) == 1:
-        _compute_predictability_of_attributes(
-            Z_val_projected,
-            Y["val"],
-            predictor_train_ixs,
-            method,
-            factors[0],
-            subspace_size,
-            erased,
-            estimation_N,
-            experiment_results,
-            cfg,
+    if erased:
+        print(f"Training MIST on the erased {method} {subspace_size}-dimensional subspace for {factors}.")
+        subspace_result = _train_mist(
+            Z=Z_p[evaluation_ixs],
+            Y=Y[evaluation_ixs][
+                :, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
+            ],
+            subspace_size=projection_subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
+            fit_subspace=False,
+            cfg=cfg,
         )
+        mi = subspace_result.mutual_information
+        print(f"The information about {factors} in the projected space is {mi}")
+        experiment_results[f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})"] = mi
+
+    _compute_predictability_of_attributes(
+        Z_p,
+        Y,
+        method,
+        factors,
+        subspace_size,
+        erased,
+        estimation_N,
+        experiment_results,
+        cfg,
+        rng,
+    )
 
 
 def _get_fitting_Ns(cfg: MISTConfig, N: int) -> List[int]:
@@ -590,8 +425,7 @@ def _find_subspace(
     Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
     model: VAE,
-    factors_of_interest: List[str],
-    factors_of_interest_idx: List[int],
+    factors: List[str],
     alternative_factors: List[str],
     experiment_results: Dict[str, float],
     subspace_size: int,
@@ -603,16 +437,20 @@ def _find_subspace(
     rng: dsutils.RandomGenerator,
 ) -> None:
 
-    print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors_of_interest}.")
+    factors_of_interest_idx = [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
+    print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors}.")
     if method == "MIST":
-        subspace_result = _train_mist(
+        result = _train_mist(
             Z=Z["train"][train_ixs],
             Y=Y["train"][train_ixs][:, factors_of_interest_idx],  # Train on the chosen subset of the data
             subspace_size=subspace_size,
             fit_subspace=True,
             cfg=cfg,
         )
-        # mi = subspace_result.mutual_information
+        experiment_results[
+            f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})"
+        ] = result.mutual_information
+
     elif method == "rLACE":
         assert len(factors_of_interest_idx) == 1
 
@@ -628,14 +466,12 @@ def _find_subspace(
             device="cuda",
         )
 
-        le = LabelEncoder().fit(Y["train"][:, factors_of_interest_idx[0]])
-
-        Y_c = le.transform(Y["train"][:, factors_of_interest_idx[0]])
-        subspace_result = rlace_estimation.find_subspace(Z["train"][train_ixs], Y_c[train_ixs], rlace_params)
+        Y_c = LabelEncoder().fit_transform(Y["train"][:, factors_of_interest_idx[0]])
+        result = rlace_estimation.find_subspace(Z["train"][train_ixs], Y_c[train_ixs], rlace_params)
 
     elif method == "Linear Regression":
         assert len(factors_of_interest_idx) == 1
-        subspace_result = linear_regression_estimation.find_subspace(
+        result = linear_regression_estimation.find_subspace(
             Z["train"][train_ixs].numpy(), Y["train"][train_ixs, factors_of_interest_idx[0]].numpy()
         )
     else:
@@ -643,52 +479,30 @@ def _find_subspace(
 
     print("\n --------------------------------------- \n\n")
 
-    predictor_train_ixs = rng.choice(int(Z["val"].shape[0]), size=16000, replace=False)
-
-    # Process and analyze the subspace defined by the projection matrix onto the optimal subspace
-    _process_subspace(
-        X=X,
-        Z=Z,  # just standardize here... (you can even do it with a new StandardScaler)
-        Y=Y,
-        predictor_train_ixs=predictor_train_ixs,
-        A_hat=subspace_result.A_1.to(device),
-        model=model,
-        method=method,
-        factors=factors_of_interest,
-        alternative_factors=alternative_factors,
-        subspace_size=subspace_size,
-        erased=False,
-        estimation_N=fitting_N,
-        experiment_results=experiment_results,
-        cfg=cfg,
-        device=device,
-        rng=rng,
-    )
-
-    print("\n --------------------------------------- \n\n")
-
-    # Process and analyze the subspace defined by the projection matrix onto the *complement* of the optimal
-    # subspace, i.e., the subspace with as much as possible of the information removed
+    # Process and analyze the subspace defined by the projection matrix onto the optimal subspace and the out defined
+    # by the projection matrix onto the *complement* of the optimal subspace, i.e., the subspace with as much as
+    # possible of the information removed
     # Note that here, we pass the *entire* training dataset, since we will evaluate the amount of retained
     # information on the entire dataset
-    _process_subspace(
-        X=X,
-        Z=Z,
-        Y=Y,
-        predictor_train_ixs=predictor_train_ixs,
-        A_hat=subspace_result.E_1.to(device),
-        model=model,
-        method=method,
-        factors=factors_of_interest,
-        alternative_factors=[],
-        subspace_size=subspace_size,
-        erased=True,
-        estimation_N=fitting_N,
-        experiment_results=experiment_results,
-        cfg=cfg,
-        device=device,
-        rng=rng,
-    )
+    for A, a_factors, erased in zip([result.A_1, result.E_1], [alternative_factors, []], [False, True]):
+        _process_subspace(
+            X=X["val"],
+            Z=Z["val"],
+            Y=Y["val"],
+            A_hat=A.to(device),
+            model=model,
+            method=method,
+            factors=factors,
+            alternative_factors=a_factors,
+            subspace_size=subspace_size,
+            erased=erased,
+            estimation_N=fitting_N,
+            experiment_results=experiment_results,
+            cfg=cfg,
+            device=device,
+            rng=rng,
+        )
+        print("\n --------------------------------------- \n\n")
 
     print("\n ------------------------------------------------------------------------------ \n\n\n")
 
@@ -696,31 +510,68 @@ def _find_subspace(
 def _fit_gmm(
     X: torch.Tensor,
     Z: torch.Tensor,
-    trained_model: VAE,
+    model: VAE,
     cfg: MISTConfig,
     experiment_results: Dict[str, float],
-):
+    model_type: str,
+    file_name: str,
+) -> None:
 
     # Fit a GMM model on the produced latent space
-    print("Fitting the GMM on the original latent space.")
+    print("Fitting the GMM.")
     gmm_sampler = GaussianMixtureSampler(
-        sampler_config=GaussianMixtureSamplerConfig(n_components=cfg.n_gmm_components), model=trained_model
+        sampler_config=GaussianMixtureSamplerConfig(n_components=cfg.n_gmm_components), model=model
     )
     gmm_sampler.fit(X)
-    print("Fitting the GMM on the original latent space done.")
 
     # Generate a sample of images based on the fit sampler, plot, and save them.
     visualisation.generated_images(
         gmm_sampler.sample(num_samples=cfg.plot_nrows * cfg.plot_ncols),
         cfg.plot_nrows,
         cfg.plot_ncols,
-        file_name="generated_images_full_model.png",
+        file_name=file_name,
     )
 
     # Compute the log likelihood of the validation data according to the sampler
     org_ll = gmm_sampler.gmm.score(Z)
     print(f"The log likelihood of the validation data is {org_ll}.")
-    experiment_results["Original model validation log likelihood"] = org_ll
+    experiment_results[f"{model_type} model validation log likelihood"] = org_ll
+
+
+def _estimate_factor_entropies(
+    Y: torch.Tensor,
+    factors: List[str],
+    factors_idx: List[int],
+    experiment_results: Dict[str, float],
+) -> None:
+
+    # Estimate the entropy of each of the factors on the validation split
+    for ii, factor_idx in enumerate(factors_idx):
+        H = mutual_info_regression(Y[:, factor_idx].reshape((-1, 1)), Y[:, factor_idx].flatten())[0]
+        print(f"H({factors[ii]}) = {H}.")
+        experiment_results[f"H({factors[ii]})"] = H
+
+
+def _determine_factor_mutual_information(
+    Z: torch.Tensor,
+    Y: torch.Tensor,
+    model: VAE,
+    factors: List[str],
+    experiment_results: Dict[str, float],
+    cfg: MISTConfig,
+) -> None:
+
+    print(f"Training MIST to determine the information about {factors} in the space.")
+    result = _train_mist(
+        Z=Z,
+        Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]],
+        subspace_size=model.model_config.latent_dim,
+        fit_subspace=False,
+        cfg=cfg,
+    )
+    mi = result.mutual_information
+    print(f"The information about {factors} in the space is {mi}")
+    experiment_results[f"I({factors}, VAE)"] = mi
 
 
 def _process_factors_of_interest(
@@ -728,7 +579,7 @@ def _process_factors_of_interest(
     Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
     model: VAE,
-    factors_of_interest: List[str],
+    factors: List[str],
     alternative_factors: List[str],
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
@@ -745,7 +596,7 @@ def _process_factors_of_interest(
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
         model: The loaded trained VAE model to be applied to the data in `X`
-        factors_of_interest: The set of factors of interest to consider.
+        factors: The set of factors of interest to consider.
         alternative_factors: The set of factors for which to check how much information was captured about them in the
                              found subspace.
         experiment_results: The dictionary in which to store the results of the experiment.
@@ -754,40 +605,31 @@ def _process_factors_of_interest(
         rng: The random generator.
     """
 
-    # Compute the indices of the factors of interest in the ground-truth data matrix `Y`
-    factors_of_interest_idx = [
-        _get_dataset_module(cfg).attribute2idx[factor_of_interest] for factor_of_interest in factors_of_interest
-    ]
-
-    # Estimate the entropy of each of the factors on the validation split
-    for ii, factor_of_interest_idx in enumerate(factors_of_interest_idx):
-        H = mutual_info_regression(
-            Y["val"][:, factor_of_interest_idx].reshape((-1, 1)), Y["val"][:, factor_of_interest_idx].flatten()
-        )[0]
-        print(f"H({factors_of_interest[ii]}) = {H}.")
-        experiment_results[f"H({factors_of_interest[ii]})"] = H
+    _estimate_factor_entropies(
+        Y=Y["val"],
+        factors=factors,
+        factors_idx=[dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors],
+        experiment_results=experiment_results,
+    )
 
     # To find out how much information about the factors of interest there is in the entire learned representation
     # space, we train a MIST model on the entire space
-    # This is done on the *entire* dataset
-    print(f"Training MIST to determine the information about {factors_of_interest} in the full VAE space.")
-    full_space_result = _train_mist(
-        Z=Z["train"],
-        Y=Y["train"][:, factors_of_interest_idx],
-        subspace_size=model.model_config.latent_dim,
-        fit_subspace=False,
+    evaluation_ixs = rng.choice(len(Z["val"]), size=cfg.estimation_N, replace=False)
+    _determine_factor_mutual_information(
+        Z=Z["val"][evaluation_ixs],
+        Y=Y["val"][evaluation_ixs],
+        model=model,
+        factors=factors,
+        experiment_results=experiment_results,
         cfg=cfg,
     )
-    full_mi = full_space_result.mutual_information
-    print(f"The information about {factors_of_interest} in the full VAE space is {full_mi}")
-    experiment_results[f"I({factors_of_interest}, VAE)"] = full_mi
 
     # Get the number of data points the MIST model will be trained with
     fitting_Ns = _get_fitting_Ns(cfg, len(Z["train"]))
-    print(
-        f"Will fit the optimal subspaces with {fitting_Ns} data points "
-        f"(40 %, {[int(0.4 * N) for N in fitting_Ns]}, of that for the training)."
-    )
+    print(f"Will fit the optimal subspaces with {[int(0.4 * N) for N in fitting_Ns]} data points.")
+
+    # Get a random subset of the training dataset
+    train_ixs = {N: rng.choice(int(Z["train"].shape[0]), size=N, replace=False) for N in fitting_Ns}
 
     # Next, we find, for each dimensionality specified in the config, the linear subspace capturing the most
     # information about these factors
@@ -796,78 +638,56 @@ def _process_factors_of_interest(
         # The MIST model is trained in different number of data points to test the sensitivity to the dataset size
         for fitting_N in fitting_Ns:
 
-            # Get a random subset of the training dataset
-            train_ixs = rng.choice(int(Z["train"].shape[0]), size=fitting_N, replace=False)
-
             # Train MIST on the subspace of size `subspace_size` with `fitting_N` data points
             print(
-                f"Looking into the subspace of size {subspace_size} for factors {factors_of_interest} with "
+                f"Looking into the subspace of size {subspace_size} for factors {factors} with "
                 f"{fitting_N} data points ({0.4 * 100 * fitting_N / len(Z['train']):2.2f} % of the dataset)."
             )
 
-            print(">>> INVESTIGATING MIST")
-            _find_subspace(
-                X=X,
-                Z=Z,
-                Y=Y,
-                model=model,
-                factors_of_interest=factors_of_interest,
-                factors_of_interest_idx=factors_of_interest_idx,
-                alternative_factors=alternative_factors,
-                experiment_results=experiment_results,
-                subspace_size=subspace_size,
-                fitting_N=fitting_N,
-                method="MIST",
-                train_ixs=train_ixs,
-                cfg=cfg,
-                device=device,
-                rng=rng,
-            )
-            print()
-            print()
-            print()
-
-            print(">>> INVESTIGATING RLACE")
-            _find_subspace(
-                X=X,
-                Z=Z,
-                Y=Y,
-                model=model,
-                factors_of_interest=factors_of_interest,
-                factors_of_interest_idx=factors_of_interest_idx,
-                alternative_factors=alternative_factors,
-                experiment_results=experiment_results,
-                subspace_size=subspace_size,
-                fitting_N=fitting_N,
-                method="rLACE",
-                train_ixs=train_ixs,
-                cfg=cfg,
-                device=device,
-                rng=rng,
-            )
-            print()
-            print()
-            print()
-
-            if subspace_size == 1:
-                print(">>> INVESTIGATING LINEAR REGRESSION")
+            for method in ["MIST", "rLACE", "Linear Regression"]:
+                print(f">>> INVESTIGATING {method}")
                 _find_subspace(
                     X=X,
                     Z=Z,
                     Y=Y,
                     model=model,
-                    factors_of_interest=factors_of_interest,
-                    factors_of_interest_idx=factors_of_interest_idx,
+                    factors=factors,
                     alternative_factors=alternative_factors,
                     experiment_results=experiment_results,
                     subspace_size=subspace_size,
                     fitting_N=fitting_N,
-                    method="Linear Regression",
-                    train_ixs=train_ixs,
+                    method=method,
+                    train_ixs=train_ixs[fitting_N],
                     cfg=cfg,
                     device=device,
                     rng=rng,
                 )
+                print("\n\n\n")
+
+
+def _get_representations(
+    trained_model: VAE, X_train: torch.Tensor, X_val: torch.Tensor, X_test: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+    # Get the latent representations given by the original VAE
+    Z_train = vaeutils.get_latent_representations(trained_model, X_train)
+    Z_val = vaeutils.get_latent_representations(trained_model, X_val)
+    Z_test = vaeutils.get_latent_representations(trained_model, X_test)
+
+    full_scaler = StandardScaler().fit(Z_train)
+    Z_train = torch.from_numpy(full_scaler.transform(Z_train.numpy())).float()
+    Z_val = torch.from_numpy(full_scaler.transform(Z_val.numpy())).float()
+    Z_test = torch.from_numpy(full_scaler.transform(Z_test.numpy())).float()
+
+    return Z_train, Z_val, Z_test
+
+
+def _save_results(experiment_results: Dict[str, float]) -> None:
+    # Save the experiment results in a data frame
+    results_df = pd.DataFrame({"Value": experiment_results})
+    print("The final experiment results:")
+    print(results_df)
+    results_df.to_csv("experiment_results.csv")
 
 
 @hy.main
@@ -882,60 +702,43 @@ def main(cfg: MISTConfig):
         "at most 40 % of the data can be used to fit the subspace with the MIST model."
     )
 
-    # This will keep various metrics from the experiment
-    experiment_results = dict()
-
     pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
 
-    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = _load_data(cfg)
-
+    # This will keep various metrics from the experiment
+    experiment_results = dict()
     device = "cuda" if cfg.gpus > 0 else "cpu"
 
     # Load the trained VAE
     trained_model = AutoModel.load_from_folder(cfg.vae_model_file_path).to(device)
 
-    # Plot the original VAE reconstructions
-    visualisation.vae_reconstructions(
-        dataset=X_val,
-        vae_model=trained_model,
-        nrows=cfg.plot_nrows,
-        ncols=cfg.plot_ncols,
-        cmap=None,
-        file_name="reconstructions_full_model.png",
+    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = dsutils.load_split_data(
+        cfg.file_paths_x, cfg.file_paths_y, cfg.dataset
     )
+    Z_train, Z_val, Z_test = _get_representations(trained_model, X_train, X_val, X_test)
 
-    # Get the latent representations given by the original VAE
-    Z_train = vaeutils.get_latent_representations(trained_model, X_train)
-    Z_val = vaeutils.get_latent_representations(trained_model, X_val)
-    Z_test = vaeutils.get_latent_representations(trained_model, X_test)
-
-    full_scaler = StandardScaler().fit(Z_train)
-    Z_train = torch.from_numpy(full_scaler.transform(Z_train.numpy())).float()
-    Z_val = torch.from_numpy(full_scaler.transform(Z_val.numpy())).float()
-    Z_test = torch.from_numpy(full_scaler.transform(Z_test.numpy())).float()
-
-    _fit_gmm(X=X_val, Z=Z_val, trained_model=trained_model, cfg=cfg, experiment_results=experiment_results)
-
-    # Plot the latent traversals
-    visualisation.latent_traversals(
-        vae_model=trained_model,
-        starting_x=X_val[rng.choice(len(X_val))].to(device),
+    # Generate samples from the model
+    _fit_gmm(
+        X=X_val,
         Z=Z_val,
-        n_values=cfg.plot_ncols,
-        n_axes=cfg.plot_nrows,
-        cmap=None,
-        file_name="latent_traversals_full_model.png",
+        model=trained_model,
+        cfg=cfg,
+        experiment_results=experiment_results,
+        model_type="full",
+        file_name="full_model_generated_images.png",
     )
 
-    # Plot homotopies
-    starting_xs = [X_val[rng.choice(len(X_val))] for _ in range(cfg.plot_n_images)]
-    visualisation.homotopies(
-        vae_model=trained_model,
-        xs=[x.to(device) for x in starting_xs],
+    # Visually inspect the reconstructions and traversals
+    visualisation.graphically_evaluate_model(
+        trained_model,
+        X_val,
+        Z_val,
+        homotopy_n=cfg.plot_n_images,
+        n_rows=cfg.plot_nrows,
         n_cols=cfg.plot_ncols,
+        rng=rng,
         device=device,
-        file_name="homotopies_full_model.png",
+        file_prefix="full_model",
     )
 
     # Go through the specified factors of interest, and for each provided set, find the subspace capturing the most
@@ -955,13 +758,9 @@ def main(cfg: MISTConfig):
             rng,
         )
 
-    print("Finished.")
+    _save_results(experiment_results)
 
-    # Save the experiment results in a data frame
-    results_df = pd.DataFrame({"Value": experiment_results})
-    print("The final experiment results:")
-    print(results_df)
-    results_df.to_csv("experiment_results.csv")
+    print("Finished.")
 
 
 if __name__ == "__main__":

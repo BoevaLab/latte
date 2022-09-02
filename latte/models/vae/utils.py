@@ -2,16 +2,52 @@
 Utils for various aspects of working with VAEs.
 Implementations are meant to work with the `pythae` library.
 """
+from typing import Any
 
 import torch
 
 from tqdm import trange
 
-from pythae.models.vae import vae_model
+from pythae.models import (
+    BetaVAE,
+    BetaTCVAE,
+    AE,
+    FactorVAE,
+    IWAE,
+    INFOVAE_MMD,
+    VAMP,
+    DisentangledBetaVAE,
+    RHVAE,
+    VAE,
+)
+
+
+def get_vae_class(vae_flavour: str) -> Any:  # noqa: C901
+    """Returns the appropriate model class according to the specification."""
+    if vae_flavour == "RHVAE":
+        return RHVAE
+    elif vae_flavour == "BetaVAE":
+        return BetaVAE
+    elif vae_flavour == "BetaTCVAE":
+        return BetaTCVAE
+    elif vae_flavour == "AE":
+        return AE
+    elif vae_flavour == "FactorVAE":
+        return FactorVAE
+    elif vae_flavour == "IWAE":
+        return IWAE
+    elif vae_flavour == "INFOVAE_MMD":
+        return INFOVAE_MMD
+    elif vae_flavour == "VAMP":
+        return VAMP
+    elif vae_flavour == "DisentangledBetaVAE":
+        return DisentangledBetaVAE
+    else:
+        raise NotImplementedError
 
 
 def get_latent_representations(
-    model: vae_model.VAE, X: torch.Tensor, batch_size: int = 2048, device: str = "cuda"
+    model: VAE, X: torch.Tensor, batch_size: int = 2048, device: str = "cuda"
 ) -> torch.Tensor:
     """
     A utility function to get the latent representations given by the encoder model of the VAE to the observations
@@ -38,7 +74,7 @@ def get_latent_representations(
 
 
 def save_representations(
-    trained_model: vae_model.VAE,
+    trained_model: VAE,
     X: torch.Tensor,
     file_name: str,
     batch_size: int = 4096,
