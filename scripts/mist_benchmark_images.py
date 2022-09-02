@@ -117,16 +117,13 @@ class MISTConfig:
     num_workers: int = 6
 
 
-def _train_mist(
-    Z: torch.Tensor, Y: torch.Tensor, subspace_size: int, fit_subspace: bool, cfg: MISTConfig
-) -> mist_estimation.MISTResult:
+def _train_mist(Z: torch.Tensor, Y: torch.Tensor, subspace_size: int, cfg: MISTConfig) -> mist_estimation.MISTResult:
     """
     Trains a MIST model to find the optimal subspace of dimensionality `subspace_size` about the factors captured in `Y`
     Args:
         Z: Full VAE representations
         Y: Ground-truth factor values
         subspace_size: The current size of the subspace considered.
-        fit_subspace: Whether subspace is to be fit (and the train/test fractions should be different)
         cfg: The configuration object of the experiment.
 
     Returns:
@@ -136,14 +133,10 @@ def _train_mist(
 
     print("Training MIST.")
 
-    p_train, p_val = (0.4, 0.2) if fit_subspace else (0.7, 0.1)
-
     mi_estimation_result = mist_estimation.find_subspace(
         X=Z,
         Z_max=Y,
-        datamodule_kwargs=dict(
-            num_workers=cfg.num_workers, batch_size=cfg.mist_batch_size, p_train=p_train, p_val=p_val
-        ),
+        datamodule_kwargs=dict(num_workers=cfg.num_workers, batch_size=cfg.mist_batch_size, p_train=0.4, p_val=0.2),
         model_kwargs=dict(
             x_size=Z.shape[1],
             z_max_size=Y.shape[1],
@@ -182,32 +175,27 @@ def _process_alternative_factors(
     cfg: MISTConfig,
 ) -> None:
 
-    for alternative_factor in alternative_factors:
-        print(f"Checking how much information about {alternative_factor} was also captured in the subspace.")
-        full_alternative_factors_result = _train_mist(
-            Z=Z,
-            Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[alternative_factor]]],
-            subspace_size=model.model_config.latent_dim,
-            fit_subspace=False,
-            cfg=cfg,
-        )
-        full_alternative_factors_mi = full_alternative_factors_result.mutual_information
-        print(f"The information about {alternative_factor} in the full VAE space is {full_alternative_factors_mi}")
-        experiment_results[f"I({alternative_factor}, VAE | {method} N={estimation_N})"] = full_alternative_factors_mi
+    for factor in alternative_factors:
 
-        print(f"Training MIST for {alternative_factor} on the {subspace_size}-dimensional subspace of {factors}.")
-        alternative_factors_subspace_result = _train_mist(
-            Z=Z_p,
-            Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[alternative_factor]]],
-            subspace_size=subspace_size,
-            fit_subspace=False,
+        _determine_factor_mutual_information(
+            Z=Z,
+            Y=Y,
+            subspace_size=model.model_config.latent_dim,
+            factors=[factor],
+            experiment_results=experiment_results,
+            result_key=f"I({factor}, VAE | {method} N={estimation_N})",
             cfg=cfg,
         )
-        alternative_factors_mi = alternative_factors_subspace_result.mutual_information
-        print(f"The information about {alternative_factor} in the found space is {alternative_factors_mi}")
-        experiment_results[
-            f"I({alternative_factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})"
-        ] = alternative_factors_mi
+
+        _determine_factor_mutual_information(
+            Z=Z_p,
+            Y=Y,
+            subspace_size=subspace_size,
+            factors=[factor],
+            experiment_results=experiment_results,
+            result_key=f"I({factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})",
+            cfg=cfg,
+        )
 
 
 def _compute_predictability_of_attributes(
@@ -254,7 +242,7 @@ def _process_subspace(
     X: torch.Tensor,
     Z: torch.Tensor,
     Y: torch.Tensor,
-    A_hat: geoopt.ManifoldTensor,
+    A: geoopt.ManifoldTensor,
     model: VAE,
     method: str,
     factors: List[str],
@@ -275,7 +263,7 @@ def _process_subspace(
         X: Dictionary of the observations split into "train", "val", and "test" splits
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
-        A_hat: The projection matrix.
+        A: The projection matrix.
         model: The original trained model
         factors: The factors of interest
         alternative_factors: The set of factors of interest to consider.
@@ -298,18 +286,18 @@ def _process_subspace(
     # `subspace_size` only refers to the dimensionality of the subspace the "maximisation matrix" projects onto
     # In case this function is called with the "erasing" matrix, we keep that dimensionality for logging,
     # but we need to actually use the entire space, wince the erasing matrix is square
-    projection_subspace_size = A_hat.shape[1]
+    projection_subspace_size = A.shape[1]
 
     # Construct the VAE model which projects onto the subspace defined by `A_hat`
     # It has the same config as the original model, so we copy it, we just change the `latent_dim`
     projection_model = vaeutils.get_vae_class(cfg.model_class)(
         model_config=replace(model.model_config),
-        encoder=ProjectionBaseEncoder(model.encoder, A_hat),
-        decoder=ProjectionBaseDecoder(model.decoder, A_hat),
+        encoder=ProjectionBaseEncoder(model.encoder, A),
+        decoder=ProjectionBaseDecoder(model.decoder, A),
     )
     projection_model.model_config.latent_dim = projection_subspace_size
 
-    Z_p = _project_onto_subspace(Z, A_hat)
+    Z_p = _project_onto_subspace(Z, A)
 
     _fit_gmm(
         X=X,
@@ -322,7 +310,7 @@ def _process_subspace(
         f"{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
     )
 
-    for lt, model_type in zip([None, lambda t: t @ A_hat @ A_hat.T], ["full", "projected"]):
+    for lt, model_type in zip([None, lambda t: t @ A @ A.T], ["full", "projected"]):
         visualisation.graphically_evaluate_model(
             model,
             X,
@@ -373,19 +361,17 @@ def _process_subspace(
         )
 
     if erased:
-        print(f"Training MIST on the erased {method} {subspace_size}-dimensional subspace for {factors}.")
-        subspace_result = _train_mist(
+        _determine_factor_mutual_information(
             Z=Z_p[evaluation_ixs],
             Y=Y[evaluation_ixs][
                 :, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
             ],
             subspace_size=projection_subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
-            fit_subspace=False,
+            factors=factors,
+            experiment_results=experiment_results,
+            result_key=f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})",
             cfg=cfg,
         )
-        mi = subspace_result.mutual_information
-        print(f"The information about {factors} in the projected space is {mi}")
-        experiment_results[f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})"] = mi
 
     _compute_predictability_of_attributes(
         Z_p,
@@ -421,35 +407,29 @@ def _get_fitting_Ns(cfg: MISTConfig, N: int) -> List[int]:
 
 
 def _find_subspace(
-    X: Dict[str, torch.Tensor],
     Z: Dict[str, torch.Tensor],
     Y: Dict[str, torch.Tensor],
-    model: VAE,
     factors: List[str],
-    alternative_factors: List[str],
     experiment_results: Dict[str, float],
     subspace_size: int,
     fitting_N: int,
     method: str,
     train_ixs: np.ndarray,
     cfg: MISTConfig,
-    device: str,
-    rng: dsutils.RandomGenerator,
-) -> None:
+) -> Tuple[torch.Tensor, torch.Tensor]:
 
     factors_of_interest_idx = [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
     print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors}.")
     if method == "MIST":
-        result = _train_mist(
+        _determine_factor_mutual_information(
             Z=Z["train"][train_ixs],
             Y=Y["train"][train_ixs][:, factors_of_interest_idx],  # Train on the chosen subset of the data
             subspace_size=subspace_size,
-            fit_subspace=True,
+            factors=factors,
+            experiment_results=experiment_results,
+            result_key=f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})",
             cfg=cfg,
         )
-        experiment_results[
-            f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})"
-        ] = result.mutual_information
 
     elif method == "rLACE":
         assert len(factors_of_interest_idx) == 1
@@ -479,32 +459,7 @@ def _find_subspace(
 
     print("\n --------------------------------------- \n\n")
 
-    # Process and analyze the subspace defined by the projection matrix onto the optimal subspace and the out defined
-    # by the projection matrix onto the *complement* of the optimal subspace, i.e., the subspace with as much as
-    # possible of the information removed
-    # Note that here, we pass the *entire* training dataset, since we will evaluate the amount of retained
-    # information on the entire dataset
-    for A, a_factors, erased in zip([result.A_1, result.E_1], [alternative_factors, []], [False, True]):
-        _process_subspace(
-            X=X["val"],
-            Z=Z["val"],
-            Y=Y["val"],
-            A_hat=A.to(device),
-            model=model,
-            method=method,
-            factors=factors,
-            alternative_factors=a_factors,
-            subspace_size=subspace_size,
-            erased=erased,
-            estimation_N=fitting_N,
-            experiment_results=experiment_results,
-            cfg=cfg,
-            device=device,
-            rng=rng,
-        )
-        print("\n --------------------------------------- \n\n")
-
-    print("\n ------------------------------------------------------------------------------ \n\n\n")
+    return result.A_1, result.E_1
 
 
 def _fit_gmm(
@@ -555,9 +510,10 @@ def _estimate_factor_entropies(
 def _determine_factor_mutual_information(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    model: VAE,
+    subspace_size: int,
     factors: List[str],
     experiment_results: Dict[str, float],
+    result_key: str,
     cfg: MISTConfig,
 ) -> None:
 
@@ -565,13 +521,12 @@ def _determine_factor_mutual_information(
     result = _train_mist(
         Z=Z,
         Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]],
-        subspace_size=model.model_config.latent_dim,
-        fit_subspace=False,
+        subspace_size=subspace_size,
         cfg=cfg,
     )
     mi = result.mutual_information
     print(f"The information about {factors} in the space is {mi}")
-    experiment_results[f"I({factors}, VAE)"] = mi
+    experiment_results[result_key] = mi
 
 
 def _process_factors_of_interest(
@@ -618,9 +573,10 @@ def _process_factors_of_interest(
     _determine_factor_mutual_information(
         Z=Z["val"][evaluation_ixs],
         Y=Y["val"][evaluation_ixs],
-        model=model,
+        subspace_size=model.model_config.latent_dim,
         factors=factors,
         experiment_results=experiment_results,
+        result_key=f"I({factors}, VAE)",
         cfg=cfg,
     )
 
@@ -635,6 +591,11 @@ def _process_factors_of_interest(
     # information about these factors
     for subspace_size in cfg.subspace_sizes:
 
+        if len(factors) > 1:
+            methods = ["MIST"]
+        else:
+            methods = ["MIST", "rLACE", "Linear Regression"] if subspace_size == 1 else ["MIST", "rLACE"]
+
         # The MIST model is trained in different number of data points to test the sensitivity to the dataset size
         for fitting_N in fitting_Ns:
 
@@ -644,24 +605,45 @@ def _process_factors_of_interest(
                 f"{fitting_N} data points ({0.4 * 100 * fitting_N / len(Z['train']):2.2f} % of the dataset)."
             )
 
-            for method in ["MIST", "rLACE", "Linear Regression"]:
+            for method in methods:
                 print(f">>> INVESTIGATING {method}")
-                _find_subspace(
-                    X=X,
+                A, E = _find_subspace(
                     Z=Z,
                     Y=Y,
-                    model=model,
                     factors=factors,
-                    alternative_factors=alternative_factors,
                     experiment_results=experiment_results,
                     subspace_size=subspace_size,
                     fitting_N=fitting_N,
                     method=method,
                     train_ixs=train_ixs[fitting_N],
                     cfg=cfg,
-                    device=device,
-                    rng=rng,
                 )
+
+                # Process and analyze the subspace defined by the projection matrix onto the optimal subspace and
+                # the out defined by the projection matrix onto the *complement* of the optimal subspace,
+                # i.e., the subspace with as much as possible of the information removed
+                # Note that here, we pass the *entire* training dataset, since we will evaluate the amount of retained
+                # information on the entire dataset
+                for P, a_factors, erased in zip([A, E], [alternative_factors, []], [False, True]):
+                    _process_subspace(
+                        X=X["val"],
+                        Z=Z["val"],
+                        Y=Y["val"],
+                        A=P.to(device),
+                        model=model,
+                        method=method,
+                        factors=factors,
+                        alternative_factors=a_factors,
+                        subspace_size=subspace_size,
+                        erased=erased,
+                        estimation_N=fitting_N,
+                        experiment_results=experiment_results,
+                        cfg=cfg,
+                        device=device,
+                        rng=rng,
+                    )
+                    print("\n --------------------------------------- \n\n")
+
                 print("\n\n\n")
 
 
