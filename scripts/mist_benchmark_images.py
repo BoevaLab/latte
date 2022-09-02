@@ -28,6 +28,7 @@ from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
 from latte.models.vae.projection_vae import ProjectionBaseEncoder, ProjectionBaseDecoder
 from latte.tools import space_evaluation
+from latte.tools.space_evaluation import MIEstimationMethod
 import latte.hydra_utils as hy
 
 
@@ -163,9 +164,9 @@ def _train_mist(Z: torch.Tensor, Y: torch.Tensor, subspace_size: int, cfg: MISTC
 
 def _process_alternative_factors(
     Z: torch.Tensor,
-    Z_p: torch.Tensor,
     Y: torch.Tensor,
-    model: VAE,
+    A: torch.Tensor,
+    ixs: Dict[MIEstimationMethod, List[int]],
     method: str,
     factors: List[str],
     alternative_factors: List[str],
@@ -176,26 +177,23 @@ def _process_alternative_factors(
 ) -> None:
 
     for factor in alternative_factors:
-
-        _determine_factor_mutual_information(
-            Z=Z,
-            Y=Y,
-            subspace_size=model.model_config.latent_dim,
-            factors=[factor],
-            experiment_results=experiment_results,
-            result_key=f"I({factor}, VAE | {method} N={estimation_N})",
-            cfg=cfg,
-        )
-
-        _determine_factor_mutual_information(
-            Z=Z_p,
-            Y=Y,
-            subspace_size=subspace_size,
-            factors=[factor],
-            experiment_results=experiment_results,
-            result_key=f"I({factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})",
-            cfg=cfg,
-        )
+        for M, result_key in zip(
+            [None, A],
+            [
+                f"I({factor}, VAE | {method} N={estimation_N})",
+                f"I({factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})",
+            ],
+        ):
+            _determine_factor_mutual_information(
+                Z=Z,
+                Y=Y,
+                A=M,
+                ixs=ixs,
+                factors=[factor],
+                experiment_results=experiment_results,
+                result_key=result_key,
+                cfg=cfg,
+            )
 
 
 def _compute_predictability_of_attributes(
@@ -282,11 +280,14 @@ def _process_subspace(
     rng = np.random.default_rng(rng)
 
     evaluation_ixs = rng.choice(len(Z), size=cfg.estimation_N, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z), size=2000, replace=False)
 
     # `subspace_size` only refers to the dimensionality of the subspace the "maximisation matrix" projects onto
     # In case this function is called with the "erasing" matrix, we keep that dimensionality for logging,
     # but we need to actually use the entire space, wince the erasing matrix is square
     projection_subspace_size = A.shape[1]
+
+    Z_p = _project_onto_subspace(Z, A)
 
     # Construct the VAE model which projects onto the subspace defined by `A_hat`
     # It has the same config as the original model, so we copy it, we just change the `latent_dim`
@@ -296,8 +297,6 @@ def _process_subspace(
         decoder=ProjectionBaseDecoder(model.decoder, A),
     )
     projection_model.model_config.latent_dim = projection_subspace_size
-
-    Z_p = _project_onto_subspace(Z, A)
 
     _fit_gmm(
         X=X,
@@ -347,26 +346,35 @@ def _process_subspace(
             )
 
         _process_alternative_factors(
-            Z[evaluation_ixs],
-            Z_p[evaluation_ixs],
-            Y[evaluation_ixs],
-            model,
-            method,
-            factors,
-            alternative_factors,
-            subspace_size,
-            estimation_N,
-            experiment_results,
-            cfg,
+            Z=Z,
+            Y=Y,
+            A=A,
+            ixs={
+                MIEstimationMethod.KSG: evaluation_ixs,
+                MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+                MIEstimationMethod.MIST: evaluation_ixs,
+                MIEstimationMethod.SKLEARN: evaluation_ixs,
+            },
+            method=method,
+            factors=factors,
+            alternative_factors=alternative_factors,
+            subspace_size=subspace_size,
+            estimation_N=estimation_N,
+            experiment_results=experiment_results,
+            cfg=cfg,
         )
 
     if erased:
         _determine_factor_mutual_information(
-            Z=Z_p[evaluation_ixs],
-            Y=Y[evaluation_ixs][
-                :, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
-            ],
-            subspace_size=projection_subspace_size,  # The matrix `A_hat` is square, so this is over the entire space
+            Z=Z_p,
+            Y=Y,
+            A=A,
+            ixs={
+                MIEstimationMethod.KSG: evaluation_ixs,
+                MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+                MIEstimationMethod.MIST: evaluation_ixs,
+                MIEstimationMethod.SKLEARN: evaluation_ixs,
+            },
             factors=factors,
             experiment_results=experiment_results,
             result_key=f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})",
@@ -421,15 +429,15 @@ def _find_subspace(
     factors_of_interest_idx = [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
     print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors}.")
     if method == "MIST":
-        _determine_factor_mutual_information(
+        result = _train_mist(
             Z=Z["train"][train_ixs],
             Y=Y["train"][train_ixs][:, factors_of_interest_idx],  # Train on the chosen subset of the data
             subspace_size=subspace_size,
-            factors=factors,
-            experiment_results=experiment_results,
-            result_key=f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})",
             cfg=cfg,
         )
+        experiment_results[
+            f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})"
+        ] = result.mutual_information
 
     elif method == "rLACE":
         assert len(factors_of_interest_idx) == 1
@@ -510,23 +518,34 @@ def _estimate_factor_entropies(
 def _determine_factor_mutual_information(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    subspace_size: int,
+    ixs: Dict[MIEstimationMethod, List[int]],
     factors: List[str],
     experiment_results: Dict[str, float],
     result_key: str,
     cfg: MISTConfig,
+    A: Optional[torch.Tensor] = None,
 ) -> None:
-
     print(f"Training MIST to determine the information about {factors} in the space.")
-    result = _train_mist(
-        Z=Z,
-        Y=Y[:, [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]],
-        subspace_size=subspace_size,
-        cfg=cfg,
+
+    methods = (
+        [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
+        if Z.shape[1] == 1
+        else [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
     )
-    mi = result.mutual_information
-    print(f"The information about {factors} in the space is {mi}")
-    experiment_results[result_key] = mi
+
+    for method in methods:
+        result = space_evaluation.evaluate_space_with_mutual_information(
+            Z=Z,
+            Y=Y,
+            ixs=ixs[method],
+            dataset=cfg.dataset,
+            factors=[tuple(factors)],
+            A=A,
+            method=method,
+            standardise=False,
+        )
+        experiment_results[result_key + f"method={method}"] = result[tuple(factors)]
+        print(f"The information about {factors} by method {method} in the space is {result[tuple(factors)]:.3f}.")
 
 
 def _process_factors_of_interest(
@@ -570,10 +589,16 @@ def _process_factors_of_interest(
     # To find out how much information about the factors of interest there is in the entire learned representation
     # space, we train a MIST model on the entire space
     evaluation_ixs = rng.choice(len(Z["val"]), size=cfg.estimation_N, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z["val"]), size=2000, replace=False)
     _determine_factor_mutual_information(
-        Z=Z["val"][evaluation_ixs],
-        Y=Y["val"][evaluation_ixs],
-        subspace_size=model.model_config.latent_dim,
+        Z=Z["val"],
+        Y=Y["val"],
+        ixs={
+            MIEstimationMethod.KSG: evaluation_ixs,
+            MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+            MIEstimationMethod.MIST: evaluation_ixs,
+            MIEstimationMethod.SKLEARN: evaluation_ixs,
+        },
         factors=factors,
         experiment_results=experiment_results,
         result_key=f"I({factors}, VAE)",

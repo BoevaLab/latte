@@ -73,7 +73,7 @@ def _evaluate_subspace_factor_information(
     subspace_method: str,
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
-) -> Dict[MIEstimationMethod, Dict[str, float]]:
+) -> Dict[MIEstimationMethod, Dict[Tuple[str], float]]:
 
     methods = (
         [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
@@ -87,7 +87,7 @@ def _evaluate_subspace_factor_information(
             A=A,
             ixs=train_ixs[method],
             dataset=cfg.dataset,
-            factors_of_interest=cfg.factors_of_interest,
+            factors=[(factor,) for factor in cfg.factors_of_interest],
             method=method,
             standardise=False,
         )
@@ -97,10 +97,10 @@ def _evaluate_subspace_factor_information(
     for method, factor in product(methods, cfg.factors_of_interest):
         experiment_results[
             f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method})"
-        ] = result[method][factor]
+        ] = result[method][(factor,)]
         print(
             f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method}) = "
-            f"{result[method][factor]}"
+            f"{result[method][(factor,)]}"
         )
 
     return result
@@ -303,11 +303,11 @@ def _compute_information_about_factors(
     return [
         {
             method: space_evaluation.evaluate_space_with_mutual_information(
-                z,
-                Y,
-                train_ixs if method != MIEstimationMethod.LATTE_KSG else latte_ksg_train_ixs,
-                cfg.dataset,
-                cfg.factors_of_interest,
+                Z=z,
+                Y=Y,
+                ixs=train_ixs if method != MIEstimationMethod.LATTE_KSG else latte_ksg_train_ixs,
+                dataset=cfg.dataset,
+                factors=[(factor,) for factor in cfg.factors_of_interest],
                 method=method,
                 standardise=False,
             )
@@ -449,6 +449,9 @@ def main(cfg: MISTConfig):
         )
 
     factor_information = _compute_information_about_factors(Z_vals, Y_val, cfg, rng)
+    factor_information = [
+        {factor[0]: value for factor, value in d} for d in factor_information
+    ]  # Correct for the forced tuples
 
     _process_latent_representations(
         X={"train": X_train, "val": X_val, "test": X_test},

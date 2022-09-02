@@ -1,6 +1,6 @@
 # TODO (Anej): Documentation
 
-from typing import List, Dict, Protocol, Any, Optional, Union
+from typing import List, Dict, Protocol, Any, Optional, Union, Tuple
 from enum import Enum
 from collections import Counter
 
@@ -92,22 +92,21 @@ def evaluate_space_with_mutual_information(
     Y: torch.Tensor,
     ixs: List[int],
     dataset: str,
-    factors_of_interest: List[str],
+    factors: List[Tuple[str]],
     A: Optional[torch.Tensor] = None,
     method: MIEstimationMethod = MIEstimationMethod.LATTE_KSG,
     standardise: bool = True,
-) -> Dict[str, float]:
+) -> Dict[Tuple[str], float]:
     results = dict()
 
     Z = _get_Z(Z, A, standardise, to_numpy=True)
 
-    # for attribute in tqdm():
-    for attribute in tqdm(factors_of_interest):
+    for factor_group in tqdm(factors):
 
         if method == MIEstimationMethod.MIST:
             mi = model_comparison.find_common_subspaces_with_mutual_information(
                 torch.from_numpy(Z).float(),
-                Y[:, [ds_utils.get_dataset_module(dataset).attribute2idx[attribute]]],
+                Y[:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]],
                 ixs,
                 (Z.shape[1], 1),
                 standardise=False,
@@ -115,26 +114,27 @@ def evaluate_space_with_mutual_information(
         elif method == MIEstimationMethod.LATTE_KSG:
             mi = ksg.estimate_mi_ksg(
                 Z[ixs],
-                Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[attribute]]].numpy(),
+                Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]].numpy(),
                 neighborhoods=(5,),
             )[5]
         elif method == MIEstimationMethod.KSG:
             mi = ksg_estimator.mutual_information(
                 (
                     Z[ixs],
-                    Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[attribute]]].numpy(),
+                    Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]].numpy(),
                 ),
                 k=5,
             )
         elif method == MIEstimationMethod.SKLEARN:
             assert Z.shape[1] == 1
+            assert len(factor_group) == 1
             mi = feature_selection.mutual_info_regression(
-                Z[ixs], Y[ixs][:, ds_utils.get_dataset_module(dataset).attribute2idx[attribute]].numpy()
+                Z[ixs], Y[ixs][:, ds_utils.get_dataset_module(dataset).attribute2idx[factor_group[0]]].numpy()
             )[0]
         else:
             raise NotImplementedError
 
-        results[attribute] = round(mi, 3)
+        results[factor_group] = round(mi, 3)
 
     return results
 
