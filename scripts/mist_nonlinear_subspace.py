@@ -116,7 +116,7 @@ def main(cfg: SyntheticDataManifoldConfig):
         logging.info(f"The entropy the factor of variation is {h: .3f}.")
 
     # Find the subspace with the SupervisedMIST model
-    mi_estimation_result = estimation.find_subspace(
+    mi_estimation_result = estimation.fit(
         X=torch.from_numpy(dataset.X),
         Z_max=torch.from_numpy(dataset.Z),
         Z_min=None,

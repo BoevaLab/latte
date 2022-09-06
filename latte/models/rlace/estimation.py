@@ -18,7 +18,7 @@ class RLACEResult:
     complement_mutual_information: float
 
 
-def find_subspace(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: float = 0.8) -> RLACEResult:
+def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: float = 0.8) -> RLACEResult:
     """
     Main function of the module.
     `rLACE` version of the `fit_subspace` function from `MIST` evaluation.

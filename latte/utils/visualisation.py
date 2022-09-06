@@ -991,6 +991,7 @@ def factor_trend(
         xlabel, ylabel = "Learned Dimension", "Factor"
 
     fig, ax = plt.subplots(nrows=1, ncols=len(attribute_names), figsize=(2 * len(attribute_names), 2), dpi=120)
+    ax = ax if len(attribute_names) > 1 else [ax]  # in case only a single axes object is returned
 
     rng = np.random.default_rng(rng)
 
@@ -1085,6 +1086,7 @@ def factor_heatmap(
         axis_name = "Learned Dimension"
 
     fig, ax = plt.subplots(nrows=1, ncols=len(attribute_names), figsize=(2 * len(attribute_names), 2), dpi=120)
+    ax = ax if len(attribute_names) > 1 else [ax]  # in case only a single axes object is returned
 
     rng = np.random.default_rng(rng)
 

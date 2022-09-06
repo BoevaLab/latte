@@ -254,7 +254,7 @@ def _train_mist(
     }
 
 
-def find_subspace(
+def fit(
     X: Union[torch.Tensor, Dict[str, torch.Tensor]],
     Z_max: Union[torch.Tensor, Dict[str, torch.Tensor]],
     Z_min: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,

@@ -34,7 +34,7 @@ def find_common_subspaces_with_mutual_information(
         Z_1 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_1.numpy())).float()
         Z_2 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_2.numpy())).float()
 
-    mist_result = mist_estimation.find_subspace(
+    mist_result = mist_estimation.fit(
         X=Z_1[ixs],
         Z_max=Z_2[ixs],
         datamodule_kwargs=dict(

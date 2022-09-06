@@ -199,7 +199,7 @@ def _train_unconstrained_mist(
     index = rng.choice(int(Y.shape[0]), size=int(labelled_ratio * Y.shape[0]), replace=False)
 
     # Train MIST on the entire representation space
-    full_mi_estimation_result = estimation.find_subspace(
+    full_mi_estimation_result = estimation.fit(
         X=Z[index],
         Z_max=Y[index, factor_ix].reshape((-1, 1)),
         Z_min=None,
@@ -267,7 +267,7 @@ def _train_manifold_mist(
     index = rng.choice(int(Y.shape[0]), size=int(labelled_ratio * Y.shape[0]), replace=False)
 
     # Train the MIST model
-    mi_estimation_result = estimation.find_subspace(
+    mi_estimation_result = estimation.fit(
         X=Z[index],
         Z_max=Y[index, factor_ix].reshape((-1, 1)),
         Z_min=None,

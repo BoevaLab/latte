@@ -16,7 +16,7 @@ class LinearRegressionResult:
     complement_mutual_information: float
 
 
-def find_subspace(X: np.ndarray, Z: np.ndarray, p_train: float = 0.8) -> LinearRegressionResult:
+def fit(X: np.ndarray, Z: np.ndarray, p_train: float = 0.8) -> LinearRegressionResult:
     """
     Main function of the module.
     Linear regression version of the `fit_subspace` function from `MIST` evaluation.

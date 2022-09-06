@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import List, Literal, Union, Tuple, Any  # pytype: disable=not-supported-yet
+from typing import List, Literal, Union, Tuple, Any, Dict  # pytype: disable=not-supported-yet
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -131,16 +131,15 @@ def split(
 
 
 def load_split_data(
-    file_paths_x: Tuple[str, str, str],
-    file_paths_y: Tuple[str, str, str],
+    file_paths_x: Dict[str, str],
+    file_paths_y: Dict[str, str],
     dataset: str,
-) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
     """
     Load the data of the specified dataset split into an existing train-validation-test split.
     Args:
-        file_paths_x: Tuple of the paths to the train, validation, and test splits of the observational files in this
-                      order.
-        file_paths_y: Tuple of the paths to the train, validation, and test splits of the target files in this order.
+        file_paths_x: Dictionary of the paths to the train, validation, and test splits of the observational files.
+        file_paths_y: Dictionary of the paths to the train, validation, and test splits of the target files.
         dataset: The dataset to load.
                  Currently, "shapes3d" and "celeba" are supported.
 
@@ -150,20 +149,15 @@ def load_split_data(
     """
     print("Loading the data.")
 
-    X_train = torch.from_numpy(np.load(file_paths_x[0])).float()
-    Y_train = torch.from_numpy(np.load(file_paths_y[0])).float()
-    X_val = torch.from_numpy(np.load(file_paths_x[1])).float()
-    Y_val = torch.from_numpy(np.load(file_paths_y[1])).float()
-    X_test = torch.from_numpy(np.load(file_paths_x[2])).float()
-    Y_test = torch.from_numpy(np.load(file_paths_y[2])).float()
+    X = {s: torch.from_numpy(np.load(file_path)).float() for s, file_path in file_paths_x.items()}
+    Y = {s: torch.from_numpy(np.load(file_path)).float() for s, file_path in file_paths_y.items()}
 
     if dataset in ["celeba", "shapes3d"]:
-        X_train /= 255
-        X_val /= 255
-        X_test /= 255
+        for s in X:
+            X[s] /= 255
 
     print("Data loaded.")
-    return (X_train, X_val, X_test), (Y_train, Y_val, Y_test)
+    return X, Y
 
 
 def get_dataset_module(dataset: str) -> Any:

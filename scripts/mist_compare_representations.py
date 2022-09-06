@@ -73,7 +73,7 @@ def _evaluate_subspace_factor_information(
     subspace_method: str,
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
-) -> Dict[MIEstimationMethod, Dict[Tuple[str], float]]:
+) -> Dict[MIEstimationMethod, Dict[str, float]]:
 
     methods = (
         [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
@@ -93,14 +93,16 @@ def _evaluate_subspace_factor_information(
         )
         for method in methods
     }
+    # Correct for the enforced tuples
+    result = {method: {factors[0]: value for factors, value in r.items()} for method, r in result.items()}
 
     for method, factor in product(methods, cfg.factors_of_interest):
         experiment_results[
             f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method})"
-        ] = result[method][(factor,)]
+        ] = result[method][factor]
         print(
             f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method}) = "
-            f"{result[method][(factor,)]}"
+            f"{result[method][factor]}"
         )
 
     return result
@@ -300,7 +302,7 @@ def _compute_information_about_factors(
     train_ixs = rng.choice(len(Y), size=cfg.fitting_N, replace=False)
     latte_ksg_train_ixs = rng.choice(len(Y), size=2000, replace=False)
 
-    return [
+    results = [
         {
             method: space_evaluation.evaluate_space_with_mutual_information(
                 Z=z,
@@ -315,6 +317,14 @@ def _compute_information_about_factors(
         }
         for z in Z
     ]
+
+    # Correct for the enforced tuples
+    results = [
+        {method: {factors[0]: value for factors, value in r.items()} for method, r in result.items()}
+        for result in results
+    ]
+
+    return results
 
 
 def _process_latent_representations(
@@ -421,8 +431,10 @@ def main(cfg: MISTConfig):
     pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
 
-    (X_train, X_val, X_test), (Y_train, Y_val, Y_test) = dsutils.load_split_data(
-        cfg.file_paths_x, cfg.file_paths_y, cfg.dataset
+    X, Y = dsutils.load_split_data(
+        {"train": cfg.file_paths_x[0], "val": cfg.file_paths_x[1], "test": cfg.file_paths_x[2]},
+        {"train": cfg.file_paths_y[0], "val": cfg.file_paths_y[1], "test": cfg.file_paths_y[2]},
+        cfg.dataset,
     )
 
     device = "cuda" if cfg.gpus > 0 else "cpu"
@@ -433,30 +445,25 @@ def main(cfg: MISTConfig):
     ]
 
     # Get the latent representations given by the original VAE
-    Z_trains = [vae_utils.get_latent_representations(trained_model, X_train) for trained_model in models]
-    Z_vals = [vae_utils.get_latent_representations(trained_model, X_val) for trained_model in models]
-    Z_tests = [vae_utils.get_latent_representations(trained_model, X_test) for trained_model in models]
+    Zs = {split: [vae_utils.get_latent_representations(model, S) for model in models] for split, S in X}
 
-    for ii in range(len(Z_trains)):
-        full_scaler = StandardScaler().fit(Z_trains[ii].numpy())
-        Z_trains[ii] = torch.from_numpy(full_scaler.transform(Z_trains[ii].numpy())).float()
-        Z_vals[ii] = torch.from_numpy(full_scaler.transform(Z_vals[ii].numpy())).float()
-        Z_tests[ii] = torch.from_numpy(full_scaler.transform(Z_tests[ii].numpy())).float()
+    for ii in range(len(Zs["train"])):
+        full_scaler = StandardScaler().fit(Zs["train"][ii].numpy())
+        Zs["train"][ii] = torch.from_numpy(full_scaler.transform(Zs["train"][ii].numpy())).float()
+        Zs["val"][ii] = torch.from_numpy(full_scaler.transform(Zs["val"][ii].numpy())).float()
+        Zs["test"][ii] = torch.from_numpy(full_scaler.transform(Zs["test"][ii].numpy())).float()
 
-    for ii in range(len(Z_trains)):
+    for ii in range(len(Zs["train"])):
         visualisation.graphically_evaluate_model(
-            models[ii], X_val, Z_vals[ii], file_prefix=f"model_{ii}", device=device, repeats=5
+            models[ii], X["val"], Zs["val"][ii], file_prefix=f"model_{ii}", device=device, repeats=5
         )
 
-    factor_information = _compute_information_about_factors(Z_vals, Y_val, cfg, rng)
-    factor_information = [
-        {factor[0]: value for factor, value in d} for d in factor_information
-    ]  # Correct for the forced tuples
+    factor_information = _compute_information_about_factors(Zs["val"], Y["val"], cfg, rng)
 
     _process_latent_representations(
-        X={"train": X_train, "val": X_val, "test": X_test},
-        Z={"train": Z_trains, "val": Z_vals, "test": Z_tests},
-        Y={"train": Y_train, "val": Y_val, "test": Y_test},
+        X=X,
+        Z=Zs,
+        Y=Y,
         models=models,
         experiment_results=experiment_results,
         factor_information=factor_information,
