@@ -24,7 +24,8 @@ from sklearn.feature_selection import mutual_info_regression
 
 from latte.dataset import synthetic
 from latte.models.mist import estimation
-from latte.utils import evaluation, visualisation
+from latte.evaluation import subspace_evaluation
+from latte.utils.visualisation import visualisation
 import latte.hydra_utils as hy
 
 import logging
@@ -146,7 +147,7 @@ def main(cfg: SyntheticDataManifoldConfig):
     A_hat = mi_estimation_result.A_1.detach().cpu().numpy()
 
     # Evaluate the fit
-    evaluation_result = evaluation.subspace_fit(dataset.A, A_hat)
+    evaluation_result = subspace_evaluation.subspace_fit(dataset.A, A_hat)
     logging.info("--- Quality of the fit. ---")
     print(evaluation_result)
 

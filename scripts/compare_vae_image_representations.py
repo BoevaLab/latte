@@ -17,7 +17,7 @@ from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vae_utils
 from latte.tools import model_comparison, space_evaluation
 from latte.tools.space_evaluation import MIEstimationMethod
-from latte.utils import visualisation
+from latte.utils.visualisation import visualisation
 import latte.hydra_utils as hy
 
 
@@ -455,7 +455,7 @@ def main(cfg: MISTConfig):
 
     for ii in range(len(Zs["train"])):
         visualisation.graphically_evaluate_model(
-            models[ii], X["val"], Zs["val"][ii], file_prefix=f"model_{ii}", device=device, repeats=5
+            models[ii], X["val"], file_prefix=f"model_{ii}", device=device, repeats=5
         )
 
     factor_information = _compute_information_about_factors(Zs["val"], Y["val"], cfg, rng)

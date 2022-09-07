@@ -5,7 +5,7 @@ import pytest
 
 from scipy import spatial
 
-import latte.ksg as ksg
+from latte.tools.ksg import ksg
 
 
 @pytest.mark.parametrize("k", [0, 1, 2, 3, 5])

@@ -22,7 +22,8 @@ from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 
 from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vaeutils
-from latte.utils import evaluation, visualisation
+from latte.evaluation import subspace_evaluation
+from latte.utils.visualisation import visualisation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
 from latte.models.vae.projection_vae import ProjectionBaseEncoder, ProjectionBaseDecoder
@@ -264,12 +265,11 @@ def _process_subspace(
         f"{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
     )
 
-    for lt, P, model_type in zip([None, lambda t: t @ A @ A.T], [None, A], ["full", "projected"]):
+    for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [None, A], ["full", "projected"]):
         visualisation.graphically_evaluate_model(
             model,
             X,
-            Z_p,
-            A=P,
+            A=M,
             homotopy_n=cfg.plot_n_images,
             latent_transformation=lt,
             n_rows=min(projection_subspace_size, cfg.plot_nrows),
@@ -285,7 +285,7 @@ def _process_subspace(
         # Only calculate this for the projected subspace, since the number of dimensions it too large otherwise, so
         # it takes too long
         print("Calculating the mutual information about the factors captured in the axes of the projected subspace.")
-        axis_mi = evaluation.axis_factor_mutual_information(
+        axis_mi = subspace_evaluation.axis_factor_mutual_information(
             Z_p, Y, factor_names=dsutils.get_dataset_module(cfg.dataset).attribute_names
         )
         print(f"Average amount of information captured about:\n {axis_mi.mean(axis=1).sort_values(ascending=False)}.")
@@ -700,7 +700,6 @@ def main(cfg: MISTConfig):
     visualisation.graphically_evaluate_model(
         trained_model,
         X["val"],
-        Z["val"],
         homotopy_n=cfg.plot_n_images,
         n_rows=cfg.plot_nrows,
         n_cols=cfg.plot_ncols,

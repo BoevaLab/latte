@@ -20,7 +20,7 @@ from tqdm import tqdm, trange
 
 import latte.hydra_utils as hy
 from latte.dataset import utils as dsutils
-from latte.utils import visualisation
+from latte.utils.visualisation import visualisation
 from latte.models.probabilistic_pca import probabilistic_pca, orientation, evaluation as ppca_evaluation
 
 import logging

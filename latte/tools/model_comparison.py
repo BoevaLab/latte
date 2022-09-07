@@ -76,6 +76,6 @@ def find_common_subspaces_with_correlation(
         Z_1 = preprocessing.StandardScaler().fit_transform(Z_1.numpy())
         Z_2 = preprocessing.StandardScaler().fit_transform(Z_2.numpy())
 
-    cca_result = cca_estimation.find_subspace(Z_1[ixs], Z_2[ixs], subspace_size)
+    cca_result = cca_estimation.fit(Z_1[ixs], Z_2[ixs], subspace_size)
 
     return cca_result.A_1, cca_result.E_1, cca_result.A_2, cca_result.E_2

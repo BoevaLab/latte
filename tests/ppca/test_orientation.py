@@ -7,7 +7,7 @@ import torch
 
 from latte.models.probabilistic_pca import probabilistic_pca, orientator, orientation
 from latte.manifolds import utils as mutils
-from latte.utils import evaluation
+from latte.evaluation import subspace_evaluation
 from latte.modules import callbacks as cbs
 from latte.modules.data.datamodules import GenericDataModule
 
@@ -113,8 +113,10 @@ def test_orientation(n: int, d: int) -> None:
     A_hat_oriented = A_hat @ R_hat
     stopped_epoch = orientation_result.stopped_epoch
 
-    original_error = evaluation.mixing_matrix_fit(dataset.A, A_hat)["Value"]["Difference between matrices"]
-    oriented_error = evaluation.mixing_matrix_fit(dataset.A, A_hat_oriented)["Value"]["Difference between matrices"]
+    original_error = subspace_evaluation.mixing_matrix_fit(dataset.A, A_hat)["Value"]["Difference between matrices"]
+    oriented_error = subspace_evaluation.mixing_matrix_fit(dataset.A, A_hat_oriented)["Value"][
+        "Difference between matrices"
+    ]
 
     assert stopped_epoch < 255
     assert oriented_error < original_error

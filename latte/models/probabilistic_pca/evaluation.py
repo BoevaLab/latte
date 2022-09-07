@@ -5,8 +5,7 @@ import torch
 
 from latte.dataset import utils as dsutils
 from latte.models.probabilistic_pca import probabilistic_pca
-from latte.utils import evaluation
-from latte.evaluation import metrics
+from latte.evaluation import subspace_evaluation, metrics
 
 
 class OrientationMetrics:
@@ -66,7 +65,7 @@ def subspace_fit(dataset: probabilistic_pca.ProbabilisticPCADataset, U_hat: np.n
 
     # We look at the distance between the subspace of the `d_measured` factors and *its* projection onto the found
     # subspace defined by `U_hat`
-    return evaluation.subspace_fit(U, U_hat)
+    return subspace_evaluation.subspace_fit(U, U_hat)
 
 
 def evaluate_log_likelihood(

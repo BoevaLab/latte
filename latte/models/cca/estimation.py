@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from sklearn.cross_decomposition import CCA
 
-from latte.utils import ksg_estimator
+from latte.tools.ksg import naive_ksg
 from latte.dataset import utils as dataset_utils
 
 
@@ -18,7 +18,7 @@ class CCAResult:
     complement_mutual_information: float
 
 
-def find_subspace(X: np.ndarray, Z: np.ndarray, subspace_size: int, p_train: float = 0.8) -> CCAResult:
+def fit(X: np.ndarray, Z: np.ndarray, subspace_size: int, p_train: float = 0.8) -> CCAResult:
     """
     Main function of the module.
     Linear CCA version of the `fit_subspace` function from `MIST` evaluation.
@@ -46,10 +46,8 @@ def find_subspace(X: np.ndarray, Z: np.ndarray, subspace_size: int, p_train: flo
 
     # Construct the result
     mi_estimate = CCAResult(
-        mutual_information=ksg_estimator.mutual_information([X_test_projected_A_1, Z_test_projected_A_2], k=3),
-        complement_mutual_information=ksg_estimator.mutual_information(
-            [X_test_projected_E_1, Z_test_projected_E_2], k=3
-        ),
+        mutual_information=naive_ksg.mutual_information([X_test_projected_A_1, Z_test_projected_A_2], k=3),
+        complement_mutual_information=naive_ksg.mutual_information([X_test_projected_E_1, Z_test_projected_E_2], k=3),
         A_1=torch.from_numpy(A_hat_1).float(),
         E_1=torch.from_numpy(E_hat_1).float(),
         A_2=torch.from_numpy(A_hat_2).float(),

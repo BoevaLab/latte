@@ -12,10 +12,10 @@ from tqdm import tqdm
 
 from pythae.models import VAE
 
-from latte.utils import ksg_estimator, visualisation
+from latte.utils.visualisation import visualisation
+from latte.tools.ksg import naive_ksg, ksg
 from latte.dataset import utils as ds_utils
 from latte.tools import model_comparison
-from latte import ksg
 
 
 class MIEstimationMethod(Enum):
@@ -118,7 +118,7 @@ def evaluate_space_with_mutual_information(
                 neighborhoods=(5,),
             )[5]
         elif method == MIEstimationMethod.KSG:
-            mi = ksg_estimator.mutual_information(
+            mi = naive_ksg.mutual_information(
                 (
                     Z[ixs],
                     Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]].numpy(),

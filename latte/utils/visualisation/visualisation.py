@@ -7,13 +7,13 @@ import pathlib
 from typing import Callable, Dict, Optional, List, Any, Union, Tuple
 from itertools import product
 
-import geoopt
 import numpy as np
 import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import Dataset
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.preprocessing import StandardScaler
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -25,6 +25,7 @@ from pythae.models.vae.vae_model import VAE
 
 from latte.dataset.utils import RandomGenerator
 from latte.models.probabilistic_pca import probabilistic_pca
+from latte.models.vae import utils as vae_utils
 
 left, width = -0.25, 0.5
 bottom, height = 0.25, 0.5
@@ -175,7 +176,7 @@ def _get_axis_values(
 def latent_traversals(
     vae_model: nn.Module,
     starting_x: torch.Tensor,
-    A_hat: Optional[geoopt.ManifoldTensor] = None,
+    A_hat: Optional[torch.Tensor] = None,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     n_axes: int = 1,
     Z: torch.Tensor = None,
@@ -325,7 +326,7 @@ def latent_traversals_2d(
     vae_model: nn.Module,
     starting_x: torch.Tensor,
     axis: Tuple[int, int],
-    A_hat: Optional[geoopt.ManifoldTensor] = None,
+    A_hat: Optional[torch.Tensor] = None,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     Z: torch.Tensor = None,
     n_values: int = 12,
@@ -484,7 +485,7 @@ def latent_traversals_2d(
 def homotopies(
     xs: List[torch.Tensor],
     vae_model: VAE,
-    A: Optional[geoopt.ManifoldTensor] = None,
+    A: Optional[torch.Tensor] = None,
     n_cols: int = 10,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     cmap: Optional[str] = "Greys",
@@ -492,7 +493,9 @@ def homotopies(
     device: str = "cuda",
 ) -> None:
     """
-    Produces plots of homotopies (interpolations between pairs of
+    Produces plots of homotopies (interpolations between pairs of images) as defined in Section 6.3 in
+    https://arxiv.org/abs/1511.06349.
+
     Args:
         xs: The starting images.
             The function will interpolate between all the pairs of images in the list.
@@ -950,22 +953,30 @@ def factor_trend(
     rng: RandomGenerator = 42,
 ) -> None:
     """
-    Plots the relationship between values of the 1-dimensional variable `Z` (e.g., a learned latent dimension)
-    and the variable `Y`.
-    It samples `N` points uniformly from the support of `Y` (or a subinterval), and interpolates the values of `Z`
-    using `k`-nearest neighbours.
+    Plots a graph of the values of a set of 1-dimensional variables against a 1-dimensional random variable.
+    It plots the values of the provided set of points or samples `N` points uniformly from the interval containing the
+    1-dimensional variable, and interpolates the values of the set of other variables using `k`-nearest neighbours.
 
-    The function can be used to plot the relationship between a ground-truth factor of variation and a learned
-    dimension or the other way around.
+    The function can be used to plot the relationship between a ground-truth factor of variation and a two-dimensional
+    learned representation space or the other way around.
     Args:
-        Z: A 1-dimensional array containing the values of the learned dimension for a sample of data points.
-        Y: A 1-dimensional array containing the ground-truth factors of variation for the same data points.
+        Z: The tensor of values of the learned representations of `M` samples.
+        Y: The tensor of values of the true factors of variation of `M` samples.
         target: The meaning of the target.
-                If "ground-truth", the y-axis corresponds to the values of the grond-truth factor, if "learned", it
-                corresponds to the values of a learned dimension.
+                If "ground-truth", the hue corresponds to the values of the grond-truth factor.
+                In that case, Z.shape[1] must be 1 and Y.shape[1] figures will be produces, one heatmap for each
+                of the columns of `Y`.
+                If "learned", it corresponds to the values of a learned dimension.
+                In that case, Y.shape[1] must be 1 and Z.shape[1] figures will be produces, one heatmap for each
+                of the columns of `Z`.
+        interpolate: Whether to plot the heatmaps as the values of *sampled* points (interpolate = True) based on a
+                     kNN model learned on the true values or just plot the distribution and the heatmap of the original
+                     `M` points provided.
         k: Number of nearest neighbours to use for interpolation of the values.
         N: Number of data points to plot.
         q: The quantile at which to cut off the values of `Y`.
+        attribute_names: A list of length Z.shape[1] (target = "ground-truth") or Y.shape[1] (target = "learned") to
+                         set the titles of all the heatmaps produced.
         file_name: An optional file name.
                    If specified, the figure will be saved there, otherwise, it will be displayed.
         rng: A rando generator for the uniform sampling.
@@ -1034,7 +1045,6 @@ def factor_trend(
         plt.show()
 
 
-# TODO (Anej): Documentation
 def factor_heatmap(
     Z: torch.Tensor,
     Y: torch.Tensor,
@@ -1048,21 +1058,30 @@ def factor_heatmap(
     rng: RandomGenerator = 42,
 ) -> None:
     """
-    Plots a "jet" heatmap of the values of a 1-dimensional latent variable against a two-dimensional random vector.
-    It samples `N` points uniformly from the square containing the two-dimensional vector, and interpolates the values
-    of the other variable using `k`-nearest neighbours.
+    Plots a "jet" heatmap of the values of a set of 1-dimensional variables against a 2-dimensional random variable.
+    It plots the values of the provided set of points or samples `N` points uniformly from the square containing the
+    2-dimensional variable, and interpolates the values of the set of other variables using `k`-nearest neighbours.
 
-    The function can be used to plot the relationship between a ground-truth factor of variation and a two learned
-    dimensions or the other way around.
+    The function can be used to plot the relationship between a ground-truth factor of variation and a two-dimensional
+    learned representation space or the other way around.
     Args:
-        Z:
-        Y:
+        Z: The tensor of values of the learned representations of `M` samples.
+        Y: The tensor of values of the true factors of variation of `M` samples.
         target: The meaning of the target.
-                If "ground-truth", the hue corresponds to the values of the grond-truth factor, if "learned", it
-                corresponds to the values of a learned dimension.
+                If "ground-truth", the hue corresponds to the values of the grond-truth factor.
+                In that case, Z.shape[1] must be 2 and Y.shape[1] figures will be produces, one heatmap for each
+                of the columns of `Y`.
+                If "learned", it corresponds to the values of a learned dimension.
+                In that case, Y.shape[1] must be 2 and Z.shape[1] figures will be produces, one heatmap for each
+                of the columns of `Z`.
+        interpolate: Whether to plot the heatmaps as the values of *sampled* points (interpolate = True) based on a
+                     kNN model learned on the true values or just plot the distribution and the heatmap of the original
+                     `M` points provided.
         k: Number of nearest neighbours to use for interpolation of the values.
         N: Number of data points to plot.
         q: The quantile at which to cut off the values of `Y`.
+        attribute_names: A list of length Z.shape[1] (target = "ground-truth") or Y.shape[1] (target = "learned") to
+                         set the titles of all the heatmaps produced.
         file_name: An optional file name.
                    If specified, the figure will be saved there, otherwise, it will be displayed.
         rng: A rando generator for the uniform sampling.
@@ -1165,12 +1184,11 @@ def generated_images(
 def graphically_evaluate_model(
     model: VAE,
     X: torch.Tensor,
-    Z: torch.Tensor,
     A: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
     starting_xs: Optional[List[torch.Tensor]] = None,
     latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    repeats: int = 5,
+    repeats: int = 1,
     homotopy_n: int = 3,
     n_rows: int = 4,
     n_cols: int = 6,
@@ -1178,8 +1196,44 @@ def graphically_evaluate_model(
     device: str = "cuda",
     file_prefix: Optional[str] = None,
 ) -> None:
+    """
+    A convenience function to produce plots qualitatively evaluating a VAE model for images.
+    It produces the VAE reconstructions of a subset of the passed dataset, the latent traversals of a subset of chosen
+    starting images, homotopies of a subset of the dataset, and the 2D traversals in case the (projected) subspace is
+    two-dimensional.
+    Optionally, the VAE model representations can be projected with the passed `A` projection matrix and the
+    produced plots can be repeated `repeats` times.
+
+    Args:
+        model: The VAE model to evaluate.
+        X: A dataset of original images.
+        A: An optional `d x K` projection matrix to project the VAE space to a linear subspace capturing the information
+           to be kept in the reconstructions.
+           `k` is the dimensionality of the subspace.
+        starting_x: An optional starting image for latent traversals.
+        starting_xs: An optional set of starting images for homotopies.
+        latent_transformation: An optional transformation of the latent traversals before
+                               being reconstructed by `model`.
+        repeats: Number of figures of each type to generate.
+        homotopy_n: If starting_xs is not provided, the number of images to generate for homotopies.
+        n_rows: Number of rows of samples to plot for VAE reconstructions and the latent traversals.
+        n_cols: Number of columns of samples to plot for VAE reconstructions, the latent traversals, and homotopies.
+        rng: The random number generator.
+        device: The pytorch device to use.
+        file_prefix: The prefix of the filenames used to save all the figures.
+                     Different suffixes will be added to the individual files of the reconstructions, traversals,
+                     and homotopies.
+
+    """
 
     rng = np.random.default_rng(rng)
+
+    # Get the (projected) latent representations
+    Z = vae_utils.get_latent_representations(model, X)
+    Z = torch.from_numpy(StandardScaler().fit_transform(Z.numpy())).float()
+    if A is not None:
+        Z = Z @ A.detach().cpu()
+        Z = torch.from_numpy(StandardScaler().fit_transform(Z.numpy())).float()
 
     for ii in range(repeats):
         vae_reconstructions(

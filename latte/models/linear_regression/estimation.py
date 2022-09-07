@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from sklearn.linear_model import LinearRegression
 
-from latte.utils import ksg_estimator
+from latte.tools.ksg import naive_ksg
 from latte.dataset import utils as dataset_utils
 
 
@@ -43,10 +43,8 @@ def fit(X: np.ndarray, Z: np.ndarray, p_train: float = 0.8) -> LinearRegressionR
 
     # Construct the result
     mi_estimate = LinearRegressionResult(
-        mutual_information=ksg_estimator.mutual_information([X_test_projected_A, Z_test.reshape(-1, 1)], k=3),
-        complement_mutual_information=ksg_estimator.mutual_information(
-            [X_test_projected_E, Z_test.reshape(-1, 1)], k=3
-        ),
+        mutual_information=naive_ksg.mutual_information([X_test_projected_A, Z_test.reshape(-1, 1)], k=3),
+        complement_mutual_information=naive_ksg.mutual_information([X_test_projected_E, Z_test.reshape(-1, 1)], k=3),
         A_1=torch.from_numpy(A_hat).float(),
         E_1=torch.from_numpy(E_hat).float(),
     )

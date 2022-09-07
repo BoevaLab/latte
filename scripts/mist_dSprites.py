@@ -27,7 +27,8 @@ from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 from latte.dataset.dsprites import DSpritesFactor
 from latte.dataset import dsprites, utils as dsutils
 from latte.models.mist import estimation
-from latte.utils import visualisation, evaluation
+from latte.utils.visualisation import visualisation
+from latte.evaluation import subspace_evaluation
 from latte.models.vae import utils as vaeutils
 from latte.models.benchmarks.dsprites import (
     DSpritesConvEncoder,
@@ -343,7 +344,7 @@ def main(cfg: MISTdSpritesConfig):
         cmap="Greys",
     )
 
-    axes_factors_mi = evaluation.axis_factor_mutual_information(
+    axes_factors_mi = subspace_evaluation.axis_factor_mutual_information(
         Z_val, Y_val, factor_names=[dsprites.factor_names[factor] for factor in cfg.target_factors]
     )
     axes_factors_mi.to_csv("raw_vae_factor_axes_mi.csv")
@@ -490,7 +491,7 @@ def main(cfg: MISTdSpritesConfig):
             cmap="Greys",
         )
 
-        axes_factors_mi = evaluation.axis_factor_mutual_information(
+        axes_factors_mi = subspace_evaluation.axis_factor_mutual_information(
             Z_test_projected, Y_test, factor_names=[dsprites.factor_names[factor] for factor in cfg.target_factors]
         )
         axes_factors_mi.to_csv(f"projected_vae_factor_axes_mi_factor_{dsprites.factor_names[factor]}.csv")

@@ -24,7 +24,7 @@ import pytorch_lightning as pl
 from latte.modules.layers import ManifoldProjectionLayer
 from latte.models.club.club import CLUB
 from latte.models.mine.mine import MINE
-from latte.utils import ksg_estimator
+from latte.tools.ksg import naive_ksg
 
 
 class MIST(pl.LightningModule):
@@ -233,7 +233,7 @@ class MIST(pl.LightningModule):
         # sample from the second one
         self.log(
             f"{step}_maximised_mutual_information",
-            ksg_estimator.mutual_information(
+            naive_ksg.mutual_information(
                 [x_projected.detach().cpu().numpy(), z_max.detach().cpu().numpy()], k=self.ksg_num_neighbours
             ),
             on_step=True,
@@ -249,7 +249,7 @@ class MIST(pl.LightningModule):
             # sample from the third one
             self.log(
                 f"{step}_minimised_mutual_information",
-                ksg_estimator.mutual_information(
+                naive_ksg.mutual_information(
                     [x_projected.detach().cpu().numpy(), z_min.detach().cpu().numpy()], k=self.ksg_num_neighbours
                 ),
                 on_step=True,

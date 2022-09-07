@@ -7,7 +7,7 @@ import torch
 from latte.models.rlace import rlace
 from latte.dataset import utils as dataset_utils
 from latte.manifolds import utils as mutils
-from latte.utils import ksg_estimator
+from latte.tools.ksg import naive_ksg
 
 
 @dataclasses.dataclass
@@ -53,8 +53,8 @@ def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: flo
 
     # Construct the result
     mi_estimate = RLACEResult(
-        mutual_information=ksg_estimator.mutual_information([X_test_projected_A.numpy(), Z_test.reshape(-1, 1)], k=3),
-        complement_mutual_information=ksg_estimator.mutual_information(
+        mutual_information=naive_ksg.mutual_information([X_test_projected_A.numpy(), Z_test.reshape(-1, 1)], k=3),
+        complement_mutual_information=naive_ksg.mutual_information(
             [X_test_projected_E.numpy(), Z_test.reshape(-1, 1)], k=3
         ),
         A_1=A_hat_x,

@@ -1,6 +1,7 @@
 """
-Simple implementations of baseline VAE components compatible with `pythae`.
+Simple implementations of baseline CCN image VAE components compatible with `pythae`.
 Based on the similar implementations from https://arxiv.org/pdf/1802.05983.pdf.
+These architectures work on the 3-layer 64x64 images from e.g. resized `CelebA` or `Shapes3D` datasets.
 """
 
 from torch import nn

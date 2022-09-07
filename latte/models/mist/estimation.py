@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import geoopt
 import torch
+import numpy as np
 import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
@@ -51,14 +52,14 @@ def _construct_mist(
     x_size: int,
     z_max_size: int,
     subspace_size: Optional[Union[int, Tuple[int, int]]] = None,
-    mine_network_width: Optional[int] = None,
-    club_network_width: Optional[int] = None,
     z_min_size: Optional[int] = None,
     statistics_network: Optional[mine.ManifoldStatisticsNetwork] = None,
     club_density_estimators: Optional[Dict[str, nn.Module]] = None,
+    mine_network_width: int = 200,
+    club_network_width: int = 64,
     mine_learning_rate: float = 1e-4,
     club_learning_rate: float = 1e-4,
-    manifold_learning_rate: float = 1e-3,
+    manifold_learning_rate: float = 1e-2,
     lr_scheduler_patience: int = 8,
     lr_scheduler_min_delta: float = 1e-3,
     alpha: float = 0.01,
@@ -99,8 +100,11 @@ def _construct_mist(
         The constructed MIST model.
     """
 
+    # If subspace size is not provided, the optimisation is performed over the entire X space
+    if subspace_size is None:
+        subspace_size = x_size
+
     if statistics_network is None:
-        assert mine_network_width is not None
         statistics_network = mine.StatisticsNetwork(
             S=nn.Sequential(
                 nn.Linear(
@@ -235,6 +239,11 @@ def _train_mist(
     callbacks.append(early_stopping_callback)
     trainer_kwargs["callbacks"] = callbacks
 
+    if "enable_model_summary" not in trainer_kwargs:
+        trainer_kwargs["enable_model_summary"] = False
+    if "enable_progress_bar" not in trainer_kwargs:
+        trainer_kwargs["enable_progress_bar"] = False
+
     # If progress should be logged to W&B, pass the logger, else use the default (True)
     trainer = pl.Trainer(**trainer_kwargs, logger=wandb_logger if log_to_wb else True)
 
@@ -254,10 +263,34 @@ def _train_mist(
     }
 
 
+def _preprocess_data(
+    X: Union[Union[torch.Tensor, np.ndarray], Dict[str, Union[torch.Tensor, np.ndarray]]]
+) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+    """
+    A utility function to preprocess the raw passed data of any kind (the observed or target data).
+    Currently, it simply converts a numpy array to a torch tensor, however, this can later be extended.
+    Args:
+        X: The dataset to process.
+
+    Returns:
+        Processed dataset as a torch Tensor.
+    """
+
+    if isinstance(X, dict):
+        for key in X:
+            if isinstance(X[key], np.ndarray):
+                X[key] = torch.from_numpy(X[key]).float()
+    else:
+        if isinstance(X, np.ndarray):
+            X = torch.from_numpy(X).float()
+
+    return X
+
+
 def fit(
-    X: Union[torch.Tensor, Dict[str, torch.Tensor]],
-    Z_max: Union[torch.Tensor, Dict[str, torch.Tensor]],
-    Z_min: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+    X: Union[Union[torch.Tensor, np.ndarray], Dict[str, Union[torch.Tensor, np.ndarray]]],
+    Z_max: Union[Union[torch.Tensor, np.ndarray], Dict[str, Union[torch.Tensor, np.ndarray]]],
+    Z_min: Optional[Union[Union[torch.Tensor, np.ndarray], Dict[str, Union[torch.Tensor, np.ndarray]]]] = None,
     data_presplit: bool = False,
     log_to_wb: Optional[bool] = False,
     wb_run_name: Optional[str] = None,
@@ -290,6 +323,10 @@ def fit(
     Returns:
         A MISTResult object containing the results of the estimation.
     """
+
+    X = _preprocess_data(X)
+    Z_max = _preprocess_data(Z_max)
+    Z_min = _preprocess_data(Z_min)
 
     data = (
         dm.SplitMISTDataModule(X, Z_max, Z_min, **datamodule_kwargs if datamodule_kwargs is not None else dict())
