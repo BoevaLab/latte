@@ -27,7 +27,7 @@ from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 from latte.dataset.dsprites import DSpritesFactor
 from latte.dataset import dsprites, utils as dsutils
 from latte.models.mist import estimation
-from latte.utils.visualisation import visualisation
+from latte.utils.visualisation import images as image_visualisation, latent_spaces as latent_space_visualisation
 from latte.evaluation import subspace_evaluation
 from latte.models.vae import utils as vaeutils
 from latte.models.benchmarks.dsprites import (
@@ -167,7 +167,7 @@ def _plot_traversals(
 
     factor_info = "" if version == "raw" else f"_factor_{factor_name}"
 
-    visualisation.latent_traversals(
+    image_visualisation.latent_traversals(
         vae_model,
         starting_x.to(device),
         n_axes=n_axes,
@@ -234,7 +234,7 @@ def _plot_generated_samples(model: BetaVAE, X: torch.Tensor, Z: torch.Tensor, mo
     print(f"The log likelihood of the validation data is {gmm_sampler.gmm.score(Z)}.")
 
     # Generate and plot 3 * 8 images
-    visualisation.generated_images(
+    image_visualisation.generated_images(
         gmm_sampler.sample(num_samples=3 * 8),
         3,
         8,
@@ -335,7 +335,7 @@ def main(cfg: MISTdSpritesConfig):
 
     _plot_generated_samples(trained_model, X_val, Z_val, "full", cfg.n_gmm_components)
     _plot_traversals(trained_model, X_val, Z_val, version="raw", n_axes=cfg.latent_size, device=device)
-    visualisation.vae_reconstructions(
+    image_visualisation.vae_reconstructions(
         dataset=X_val,
         vae_model=trained_model,
         nrows=3,
@@ -361,7 +361,7 @@ def main(cfg: MISTdSpritesConfig):
 
         logging.info(f"Training an unconstrained MINE model for the factor {factor_name}.")
 
-        visualisation.factor_heatmap(
+        latent_space_visualisation.factor_heatmap(
             Z_val[:, [z1, z2]],
             Y_val[:, factor_ix],
             target="ground-truth",
@@ -473,7 +473,7 @@ def main(cfg: MISTdSpritesConfig):
             factor_name=dsprites.factor_names[factor],
             device=device,
         )
-        visualisation.vae_reconstructions(
+        image_visualisation.vae_reconstructions(
             dataset=X_val,
             vae_model=projection_model,
             nrows=3,
@@ -481,7 +481,7 @@ def main(cfg: MISTdSpritesConfig):
             file_name=f"projected_reconstructions_only_{factor_name}.png",
             cmap="Greys",
         )
-        visualisation.vae_reconstructions(
+        image_visualisation.vae_reconstructions(
             dataset=X_val,
             vae_model=trained_model,
             latent_transformation=lambda z: z @ A_hat @ A_hat.T,
@@ -512,7 +512,7 @@ def main(cfg: MISTdSpritesConfig):
         _plot_generated_samples(
             erased_projection_model, X_val, Z_val_erased, f"erased_{factor_name}", cfg.n_gmm_components
         )
-        visualisation.vae_reconstructions(
+        image_visualisation.vae_reconstructions(
             dataset=X_val,
             vae_model=erased_projection_model,
             nrows=3,
@@ -520,7 +520,7 @@ def main(cfg: MISTdSpritesConfig):
             file_name=f"erased_reconstructions_only_{factor_name}.png",
             cmap="Greys",
         )
-        visualisation.vae_reconstructions(
+        image_visualisation.vae_reconstructions(
             dataset=X_val,
             vae_model=trained_model,
             latent_transformation=lambda z: z @ E_hat @ E_hat.T,

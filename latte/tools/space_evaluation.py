@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from pythae.models import VAE
 
-from latte.utils.visualisation import visualisation
+from latte.utils.visualisation import images as image_visualisation, latent_spaces as latent_space_visualisation
 from latte.tools.ksg import naive_ksg, ksg
 from latte.dataset import utils as ds_utils
 from latte.tools import model_comparison
@@ -383,7 +383,7 @@ def subspace_latent_traversals(
         X: The dataset of the original images to select a starting image from.
         standardise: Whether to standardise the data.
         rng: The random generator to generate the initial sample randomly if one is not provided by `starting_x`.
-        starting_x, device, file_name: Arguments for the `latent_traversals` function in `visualisation.py`.
+        starting_x, device, file_name: Arguments for the `latent_traversals` function in `images.py`.
 
     """
 
@@ -394,7 +394,7 @@ def subspace_latent_traversals(
 
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
-    visualisation.latent_traversals(
+    image_visualisation.latent_traversals(
         vae_model=model,
         A_hat=A.cuda(),
         Z=Z,
@@ -434,7 +434,9 @@ def subspace_heatmaps(
 
     assert Z.shape[1] <= 2
 
-    plotting_method = visualisation.factor_heatmap if Z.shape[1] == 2 else visualisation.factor_trend
+    plotting_method = (
+        latent_space_visualisation.factor_heatmap if Z.shape[1] == 2 else latent_space_visualisation.factor_trend
+    )
 
     plotting_method(
         Z,

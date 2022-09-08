@@ -25,7 +25,7 @@ from sklearn.feature_selection import mutual_info_regression
 from latte.dataset import synthetic
 from latte.models.mist import estimation
 from latte.evaluation import subspace_evaluation
-from latte.utils.visualisation import visualisation
+from latte.utils.visualisation import datasets as dataset_visualisation
 import latte.hydra_utils as hy
 
 import logging
@@ -154,13 +154,13 @@ def main(cfg: SyntheticDataManifoldConfig):
     # Plot the fit if the dimensionality is suitable
     if cfg.n in [2, 3]:
         file_name = f"nonlinear_synthetic_dataset_{cfg.n}d_{cfg.subspace_size}d.png"
-        visualisation.synthetic_data(dataset.X, dataset.A, A_hat, file_name=file_name)
+        dataset_visualisation.synthetic_data(dataset.X, dataset.A, A_hat, file_name=file_name)
 
         # If the factor of variation is 1-dimensional, also visualise it by the color of the observable points
         if dataset.Z.shape[-1] == 1:
 
             file_name = f"nonlinear_synthetic_dataset_{cfg.n}d_{cfg.subspace_size}d_factors.png"
-            visualisation.synthetic_data(
+            dataset_visualisation.synthetic_data(
                 dataset.X,
                 dataset.A,
                 A_hat,

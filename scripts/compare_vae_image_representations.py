@@ -1,4 +1,3 @@
-# TODO (Anej): Documentation
 from typing import Tuple, Dict, List
 from dataclasses import dataclass
 from itertools import product
@@ -17,7 +16,7 @@ from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vae_utils
 from latte.tools import model_comparison, space_evaluation
 from latte.tools.space_evaluation import MIEstimationMethod
-from latte.utils.visualisation import visualisation
+from latte.utils.visualisation import images as image_visualisation
 import latte.hydra_utils as hy
 
 
@@ -511,7 +510,7 @@ def main(cfg: MISTConfig):
 
     # Graphically evaluate all the models
     for ii in range(len(Zs["train"])):
-        visualisation.graphically_evaluate_model(
+        image_visualisation.graphically_evaluate_model(
             models[ii], X["val"], file_prefix=f"model_{ii}", device=device, repeats=5
         )
 

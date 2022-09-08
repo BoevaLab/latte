@@ -23,7 +23,7 @@ from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 from latte.dataset import utils as dsutils
 from latte.models.vae import utils as vae_utils
 from latte.evaluation import subspace_evaluation
-from latte.utils.visualisation import visualisation
+from latte.utils.visualisation import images as image_visualisation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
 from latte.models.vae.projection_vae import ProjectionBaseEncoder, ProjectionBaseDecoder
@@ -286,7 +286,7 @@ def _process_subspace(
 
     # Evaluate the subspace graphically
     for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [A, None], ["subspace", "projected"]):
-        visualisation.graphically_evaluate_model(
+        image_visualisation.graphically_evaluate_model(
             model,
             X,
             A=M,
@@ -485,7 +485,7 @@ def _fit_gmm(
     gmm_sampler.fit(X)
 
     # Generate a sample of images based on the fit sampler, plot, and save them.
-    visualisation.generated_images(
+    image_visualisation.generated_images(
         gmm_sampler.sample(num_samples=cfg.plot_nrows * cfg.plot_ncols),
         cfg.plot_nrows,
         cfg.plot_ncols,
@@ -752,7 +752,7 @@ def main(cfg: MISTConfig):
     )
 
     # Visually inspect the reconstructions and traversals
-    visualisation.graphically_evaluate_model(
+    image_visualisation.graphically_evaluate_model(
         model,
         X["val"],
         homotopy_n=cfg.plot_n_images,
