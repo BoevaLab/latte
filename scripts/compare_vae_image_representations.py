@@ -74,6 +74,9 @@ def _evaluate_subspace_factor_information(
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
 ) -> Dict[MIEstimationMethod, Dict[str, float]]:
+    """
+    Estimates the information captured in the subspace defined by `A` about factors in `Y` with all available methods.
+    """
 
     methods = (
         [
@@ -85,6 +88,7 @@ def _evaluate_subspace_factor_information(
         if subspace_size == 1
         else [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
     )
+    # Compute the mutual information with all the methods
     result = {
         method: space_evaluation.evaluate_space_with_mutual_information(
             Z=Z["val"],
@@ -121,7 +125,16 @@ def _compute_factor_information_spearman_correlation(
     factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
     experiment_results: Dict[str, float],
 ) -> None:
+    """
+    To investigate how well different representation spaces agree, we determine how well the order of the order of
+    best-captured (in terms of the mutual information) factors differs between the two subspaces and the original
+    representation spaces.
+    If the order is the same (spearman rho = 1), the representations spaces seem to agree among the most influential
+    factors, whereas if the correlation is low, they capture different sets of factors as the order in the common
+    space changes.
+    """
 
+    # Compare the mutual information estimates estimated using these three methods.
     for method in [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]:
         full_space_mis = np.asarray(
             list(factor_information[pair_id[0]][method].values())
@@ -145,6 +158,10 @@ def _plot_latent_traversals(
     device: str,
     seed: int,
 ) -> None:
+    """
+    Wrapper around the `subspace_latent_traversals` function in `space_evaluation` which latent traversals
+    of both subspaces in question.
+    """
 
     for ix, Z, A, model in zip(pair_id, Zs, As, models):
         space_evaluation.subspace_latent_traversals(
@@ -169,6 +186,10 @@ def _plot_heatmaps_and_trends(
     subspace_method: str,
     subspace_size: Tuple[int, int],
 ) -> None:
+    """
+    Wrapper around the heatmapssubspace_heatmaps function in `space_evaluation`
+    which plots the heatmaps of both subspaces in question.
+    """
 
     for ix, Z, A in zip(pair_id, Zs, As):
         if A.shape[1] <= 2:
@@ -182,7 +203,7 @@ def _plot_heatmaps_and_trends(
             )
 
 
-def _process_subspace(
+def _process_subspaces(
     X: Dict[str, torch.Tensor],
     Z_1: Dict[str, torch.Tensor],
     Z_2: Dict[str, torch.Tensor],
@@ -197,6 +218,12 @@ def _process_subspace(
     cfg: MISTConfig,
     rng: dsutils.RandomGenerator,
 ):
+    """
+    Processes the two subspaces with either the highest mutual information (found by `MIST`) or the highest correlation
+    (found by `CCA`).
+    It evaluates the amount of information about specified factors captured in the spaces, their entropy,
+    and all the information captured in the subspaces about the original representations.
+    """
 
     print(f"Processing the {(A_1.shape[1], A_2.shape[1])}-dimensional subspaces found by {subspace_method}.")
 
@@ -205,6 +232,8 @@ def _process_subspace(
     # Select a new set of indexes for evaluation
     train_ixs = rng.choice(len(Z_1["val"]), size=cfg.fitting_N, replace=False)  # len(Z_1["val"]) == len(Z_2["val"])
     latte_ksg_train_ixs = rng.choice(len(Z_1["val"]), size=2000, replace=False)  # len(Z_1["val"]) == len(Z_2["val"])
+
+    # Loop through the representations of both models
     for ix, Z, A, subspace_size in zip(pair_id, [Z_1, Z_2], [A_1, A_2], (A_1.shape[1], A_2.shape[1])):
         print(f"Estimating the information about factors of interest in the subspaces for model {ix}.")
 
@@ -231,26 +260,27 @@ def _process_subspace(
                 )
             )
 
-            subspace_mutual_information = space_evaluation.subspace_mutual_information(
-                Z["val"], train_ixs, A, standardise=False
-            )
+            # Compute the entropy of the found subspace and the mutual information between it and the original space
+            subspace_mi = space_evaluation.subspace_mutual_information(Z["val"], train_ixs, A, standardise=False)
             subspace_entropy = space_evaluation.subspace_entropy(Z["val"], train_ixs, A, standardise=False)
+
             experiment_results[
                 f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
-            ] = subspace_mutual_information
+            ] = subspace_mi
             experiment_results[
                 f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
             ] = subspace_entropy
-            print(
-                f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = "
-                f"{subspace_mutual_information}."
-            )
+
+            print(f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = " f"{subspace_mi}.")
             print(f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = {subspace_entropy}.")
 
         else:
-            # Just use the already-computed values
+            # If the subspace is of the same dimensionality as the original space (estimating the entire information
+            # shared by the two representations), just use the already-computed values
             factor_mutual_information_results.append(factor_information[ix])
 
+    # Evaluate how well the order of the best-captured factors compares between the original representations and the
+    # subspaces
     _compute_factor_information_spearman_correlation(
         pair_id=pair_id,
         results=(factor_mutual_information_results[0], factor_mutual_information_results[1]),
@@ -260,6 +290,7 @@ def _process_subspace(
         experiment_results=experiment_results,
     )
 
+    # Plot the latent traversals of the subspace
     _plot_latent_traversals(
         Zs=(Z_1, Z_2),
         pair_id=pair_id,
@@ -272,6 +303,7 @@ def _process_subspace(
         device="cuda" if cfg.gpus > 0 else "cpu",
     )
 
+    # Plot the heatmaps of the subspace
     _plot_heatmaps_and_trends(
         Zs=(Z_1, Z_2),
         pair_id=pair_id,
@@ -307,6 +339,7 @@ def _compute_information_about_factors(
     train_ixs = rng.choice(len(Y), size=cfg.fitting_N, replace=False)
     latte_ksg_train_ixs = rng.choice(len(Y), size=2000, replace=False)
 
+    # Compute the information in each of the representation spaces with all available methods.
     results = [
         {
             method: space_evaluation.evaluate_space_with_mutual_information(
@@ -343,7 +376,8 @@ def _process_latent_representations(
     rng: dsutils.RandomGenerator,
 ) -> None:
     """
-
+    Processes the representations of all the loaded models by finding the common subspaces which share the most
+    information and investigating which factors these subspaces capture in both models.
     Args:
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
@@ -356,6 +390,7 @@ def _process_latent_representations(
     cca_subspaces_done = set([])
 
     print("Training MIST to determine the mutual information between the representations.")
+    # Loop through all pairs of representations (models) and investigate the relationships between them
     for ii, jj in product(range(len(Z["train"])), range(len(Z["train"]))):
         if ii >= jj:
             continue
@@ -365,6 +400,7 @@ def _process_latent_representations(
         ):
             print(f"Looking into subspaces of size {(s1, s2)}.")
 
+            # Find the common subspaces of the current pair sharing most information with `MIST`
             A_1, _, A_2, _, mi = model_comparison.find_common_subspaces_with_mutual_information(
                 Z_1=Z["val"][ii],
                 Z_2=Z["val"][jj],
@@ -377,7 +413,8 @@ def _process_latent_representations(
             print(f"The information between the representations of model {ii} and {jj} is {mi}")
             experiment_results[f"I(R{ii}, R{jj} | subspace_sizes={(s1, s2)} )"] = mi
 
-            _process_subspace(
+            # Process the two found subspaces
+            _process_subspaces(
                 X=X,
                 Z_1={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
                 Z_2={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},
@@ -393,11 +430,12 @@ def _process_latent_representations(
                 rng=rng,
             )
 
+            # Only use `CCA` for subspaces of the same size and only once for each size
             if s1 != s2 or s1 in cca_subspaces_done:
                 continue
-
             cca_subspaces_done.add(s1)
 
+            # Find the common subspaces with the highest axis-wise correlations with `CCA`
             A_1, _, A_2, _ = model_comparison.find_common_subspaces_with_correlation(
                 Z_1=Z["val"][ii].numpy(),
                 Z_2=Z["val"][jj].numpy(),
@@ -406,7 +444,8 @@ def _process_latent_representations(
                 standardise=False,
             )
 
-            _process_subspace(
+            # Process the two found subspaces
+            _process_subspaces(
                 X=X,
                 Z_1={"train": Z["train"][ii], "val": Z["val"][ii], "test": Z["test"][ii]},
                 Z_2={"train": Z["train"][jj], "val": Z["val"][jj], "test": Z["test"][jj]},
@@ -425,6 +464,16 @@ def _process_latent_representations(
             print("\n---------------------------------------------------------------\n\n\n")
 
 
+def _save_results(experiment_results: Dict[str, float]) -> None:
+    """
+    Save the experiment results in a data frame
+    """
+    results_df = pd.DataFrame({"Value": experiment_results})
+    print("The final experiment results:")
+    print(results_df)
+    results_df.to_csv("experiment_results.csv")
+
+
 @hy.main
 def main(cfg: MISTConfig):
 
@@ -436,6 +485,7 @@ def main(cfg: MISTConfig):
     pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
 
+    # Load the pre-split data
     X, Y = dsutils.load_split_data(
         {"train": cfg.file_paths_x[0], "val": cfg.file_paths_x[1], "test": cfg.file_paths_x[2]},
         {"train": cfg.file_paths_y[0], "val": cfg.file_paths_y[1], "test": cfg.file_paths_y[2]},
@@ -452,19 +502,23 @@ def main(cfg: MISTConfig):
     # Get the latent representations given by the original VAE
     Zs = {split: [vae_utils.get_latent_representations(model, S) for model in models] for split, S in X}
 
+    # Standardise the data
     for ii in range(len(Zs["train"])):
         full_scaler = StandardScaler().fit(Zs["train"][ii].numpy())
         Zs["train"][ii] = torch.from_numpy(full_scaler.transform(Zs["train"][ii].numpy())).float()
         Zs["val"][ii] = torch.from_numpy(full_scaler.transform(Zs["val"][ii].numpy())).float()
         Zs["test"][ii] = torch.from_numpy(full_scaler.transform(Zs["test"][ii].numpy())).float()
 
+    # Graphically evaluate all the models
     for ii in range(len(Zs["train"])):
         visualisation.graphically_evaluate_model(
             models[ii], X["val"], file_prefix=f"model_{ii}", device=device, repeats=5
         )
 
+    # Compute the information about the factors captured in the original representations of all the models
     factor_information = _compute_information_about_factors(Zs["val"], Y["val"], cfg, rng)
 
+    # Process the loaded data
     _process_latent_representations(
         X=X,
         Z=Zs,
@@ -476,13 +530,9 @@ def main(cfg: MISTConfig):
         rng=rng,
     )
 
-    print("Finished.")
+    _save_results(experiment_results)
 
-    # Save the experiment results in a data frame
-    results_df = pd.DataFrame({"Value": experiment_results})
-    print("The final experiment results:")
-    print(results_df)
-    results_df.to_csv("experiment_results.csv")
+    print("Finished.")
 
 
 if __name__ == "__main__":

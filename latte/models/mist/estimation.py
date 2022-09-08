@@ -76,8 +76,10 @@ def _construct_mist(
         x_size: Dimensionality of the observed distribution.
         z_max_size: Dimensionality of the distribution in regard to which mutual information should be maximised.
         z_min_size: Dimensionality of the distribution in regard to which mutual information should be minimised.
-        subspace_size: Dimensionality of the subspace onto which the first distribution should be projected or a
-                       2-tuple of the dimensionalities the first and the second distributions should be projected onto.
+        subspace_size: Optional dimensionality of the subspace onto which the first distribution should be projected
+                       or alpha 2-tuple of the dimensionalities the first and the second distributions should be
+                       projected onto.
+                       If left None, no projection of either space will be performed.
         mine_network_width: Size of the hidden layers of the standard `MINE` network.
                             Will be used if the `statistics_network` is not provided.
         club_network_width: Size of the hidden layers of the standard `MINE` network.

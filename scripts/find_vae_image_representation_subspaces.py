@@ -285,7 +285,7 @@ def _process_subspace(
     )
 
     # Evaluate the subspace graphically
-    for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [None, A], ["full", "projected"]):
+    for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [A, None], ["subspace", "projected"]):
         visualisation.graphically_evaluate_model(
             model,
             X,
