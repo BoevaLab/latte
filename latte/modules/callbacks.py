@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from pythae.trainers import training_callbacks
 
-from latte.models.mine.mine import MINE
+from latte.models.mine.mine import MINE, StandaloneMINE
 
 
 class MetricTracker(pl.Callback):
@@ -31,7 +31,11 @@ class WeightsTracker(pl.Callback):
         self.epoch_weights = defaultdict(list)
 
     def on_validation_epoch_end(self, trainer: pl.Trainer, module: pl.LightningModule) -> None:
-        layers = list(module.T.S) if isinstance(module, MINE) else list(module.mine.T.S) + [module.projection_layer_x.A]
+        layers = (
+            list(module.T.S)
+            if (isinstance(module, MINE) or isinstance(module, StandaloneMINE))
+            else list(module.mine.T.S) + [module.projection_layer_x.A]
+        )
         # This only keeps track of the projection matrix of the first distribution in the case of MIST
 
         for ii, layer in enumerate(layers):

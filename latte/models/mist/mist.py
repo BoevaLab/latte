@@ -106,7 +106,9 @@ class MIST(pl.LightningModule):
 
         self.mine = MINE(**mine_args) if self.gamma > 0 else None
         self.club = CLUB(**club_args) if self.minimise_mi else None
+        # Projection layer for the first distribution
         self.projection_layer_x = ManifoldProjectionLayer(n[0], d[0])
+        # Projection layer for the second distribution
         self.projection_layer_z = ManifoldProjectionLayer(n[1], d[1])
 
         self.n_density_updates = n_density_updates

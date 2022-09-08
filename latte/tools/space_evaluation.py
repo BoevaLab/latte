@@ -1,4 +1,7 @@
-# TODO (Anej): Documentation
+"""
+This module contains main wrapper functions around the various tools for estimating the quality and relevant of found
+linear subspaces in terms of the mutual information, predictability, and entropy, captured in the subspace.
+"""
 
 from typing import List, Dict, Protocol, Any, Optional, Union, Tuple
 from enum import Enum
@@ -19,9 +22,19 @@ from latte.tools import model_comparison
 
 
 class MIEstimationMethod(Enum):
+    """
+    Specifies the implemented methods of estimating the mutual information.
+    `MIST` refers to the extension of `MINE` with optimisation over the Stiefel manifold.
+    `NAIVE_KSG` refers to a naive, more biased, version of the KSG estimator, which is, however, faster.
+    `KSG` refers to a more polished estimator of the mutual information with less bias.
+    `SKLEARN` refers to the `sklearn` estimator of mutual information which only works for two 1-dimensional variables.
+
+    Note that all methods only work when the sum of the two space dimensionalities is at most 20.
+    """
+
     MIST = "mist"
-    LATTE_KSG = "latte-ksg"
-    KSG = "ksg"
+    KSG = "latte-ksg"
+    NAIVE_KSG = "ksg"
     SKLEARN = "sklearn"
 
 
@@ -39,6 +52,18 @@ def _get_Z(
     standardise: bool = True,
     to_numpy: bool = False,
 ) -> Union[torch.Tensor, np.ndarray]:
+    """
+    Utility function to optionally project and standardise the data.
+
+    Args:
+        Z: The dataset of representations.
+        A: THe optional projection matrix
+        standardise: Whether to standardise the data.
+        to_numpy: Whether to return the data in numpy format.
+
+    Returns:
+        Processed dataset.
+    """
 
     if standardise:
         Z = preprocessing.StandardScaler().fit_transform(Z.numpy())
@@ -52,6 +77,37 @@ def _get_Z(
     return Z if to_numpy else torch.Tensor(Z).float()
 
 
+def baseline_predictability(
+    Y: torch.Tensor,
+    factors: List[str],
+    dataset: str,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Computes the baseline predictability of class-valued factors specified in `factors`.
+
+    Args:
+        Y: The array of factor values of all the factors in the dataset.
+        factors: The factors whose baseline accuracies to compute.
+        dataset: The string name of the dataset correctly map the factor names to the indices in `Y`.
+
+    Returns:
+        A dictionary of baseline accuracies and F1 scores of the specified factors.
+    """
+
+    results = dict()
+
+    for attr in tqdm(factors):
+
+        Y_c = preprocessing.LabelEncoder().fit_transform(Y[:, ds_utils.get_dataset_module(dataset).attribute2idx[attr]])
+
+        counts = Counter(Y_c)
+        majority = list(counts.keys())[np.argmax(counts.values())] * np.ones(Y_c.shape[0])
+        acc, f1 = metrics.accuracy_score(Y_c, majority), metrics.f1_score(Y_c, majority, average="macro")
+        results[attr] = {"accuracy": round(acc, 3), "f1": round(f1, 3)}
+
+    return results
+
+
 def evaluate_space_with_a_model(
     X_train: torch.Tensor,
     y_train: torch.Tensor,
@@ -60,13 +116,35 @@ def evaluate_space_with_a_model(
     model: ScikitModel,
     mode: str = "class",
 ) -> Dict[str, float]:
+    """
+    Evaluates the subspace with representations `X_train` and `y_train` in terms of the predictability of the factor
+    captured in `y_train` and `y_val`.
+    The predictability can be determined with a linear or nonlinear classification or regression model.
+    Args:
+        X_train: The training split of the representations to use for predicting.
+        y_train: The training split of the factor/target to predict.
+        X_val: The evaluation split of the representations to use for predicting.
+        y_val: The validation split of the factor/target to predict.
+        model: The model to use for predicting.
+               Works with a general `sklearn` model.
+        mode: Either "class" or "regression" depending on whether `y` contains class labels or real valued targets.
 
+    Returns:
+        A set of predictability measures of the provided factor.
+        If mode = "class", it returns a dictionary of the accuracy and F1 scores on the train and the evaluation splits,
+        and if mode = "regression", the function returns a dictionary with the train and evaluation mean squared error
+        and R^2 measures.
+    """
+
+    # Scale the data
     scaler = preprocessing.StandardScaler().fit(X_train)
     X_train = scaler.transform(X_train)
     X_val = scaler.transform(X_val)
 
+    # Fit the model
     model = model.fit(X_train, y_train)
 
+    # Predict
     y_val_hat = model.predict(X_val)
     y_train_hat = model.predict(X_train)
 
@@ -90,38 +168,69 @@ def evaluate_space_with_a_model(
 def evaluate_space_with_mutual_information(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    ixs: List[int],
     dataset: str,
     factors: List[Tuple[str]],
+    fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
-    method: MIEstimationMethod = MIEstimationMethod.LATTE_KSG,
+    method: MIEstimationMethod = MIEstimationMethod.KSG,
     standardise: bool = True,
 ) -> Dict[Tuple[str], float]:
+    """
+    Evaluates the representations `Z` (optionally projected with the projection matrix `A`) w.r.t. how much information
+    they contain about the factors captured in `Y`.
+
+    The mutual information can be estimated using any of the methods specified in `MIEstimationMethod`.
+
+    Args:
+        Z: The original representations.
+        Y: The array of ground-truth factors of variations.
+        fitting_indices: Optional list of indices of the datapoints to use for estimation.
+        dataset: The string name of the dataset correctly map the factor names to the indices in `Y`.
+        factors: A list of list.
+                 Each individual list is the set of factors to evaluate the representations against, i.e., the function
+                 will compute the amount of mutual information the representations contain about each of the set of
+                 factors specified by the lists.
+        A: An optional projection matrix to a linear subspace to investigate.
+        method: Which method to use to compute the mutual information.
+        standardise: Whether to standardise the data.
+
+    Returns:
+        A dictionary with the estimate of the mutual information in the representation for each set of the factors.
+    """
     results = dict()
+
+    if fitting_indices is None:
+        # If no subset is provided, train on the entire dataset.
+        fitting_indices = list(range(Z.shape[0]))
 
     Z = _get_Z(Z, A, standardise, to_numpy=True)
 
+    # Loop through all the specified sets of factors and compute the mutual information
     for factor_group in tqdm(factors):
 
         if method == MIEstimationMethod.MIST:
             mi = model_comparison.find_common_subspaces_with_mutual_information(
-                torch.from_numpy(Z).float(),
-                Y[:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]],
-                ixs,
-                (Z.shape[1], 1),
+                Z_1=torch.from_numpy(Z).float(),
+                Z_2=Y,
+                fitting_indices=fitting_indices,
+                subspace_sizes=(Z.shape[1], 1),
                 standardise=False,
             )[-1]
-        elif method == MIEstimationMethod.LATTE_KSG:
+        elif method == MIEstimationMethod.KSG:
             mi = ksg.estimate_mi_ksg(
-                Z[ixs],
-                Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]].numpy(),
+                Z[fitting_indices],
+                Y[fitting_indices][
+                    :, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]
+                ].numpy(),
                 neighborhoods=(5,),
             )[5]
-        elif method == MIEstimationMethod.KSG:
+        elif method == MIEstimationMethod.NAIVE_KSG:
             mi = naive_ksg.mutual_information(
                 (
-                    Z[ixs],
-                    Y[ixs][:, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]].numpy(),
+                    Z[fitting_indices],
+                    Y[fitting_indices][
+                        :, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]
+                    ].numpy(),
                 ),
                 k=5,
             )
@@ -129,32 +238,14 @@ def evaluate_space_with_mutual_information(
             assert Z.shape[1] == 1
             assert len(factor_group) == 1
             mi = feature_selection.mutual_info_regression(
-                Z[ixs], Y[ixs][:, ds_utils.get_dataset_module(dataset).attribute2idx[factor_group[0]]].numpy()
+                Z[fitting_indices],
+                Y[fitting_indices][:, ds_utils.get_dataset_module(dataset).attribute2idx[factor_group[0]]].numpy(),
             )[0]
         else:
             raise NotImplementedError
 
+        # Save the computed mutual information
         results[factor_group] = round(mi, 3)
-
-    return results
-
-
-def baseline_predictability(
-    Y: torch.Tensor,
-    dataset: str,
-    factors_of_interest: List[str],
-) -> Dict[str, Dict[str, float]]:
-
-    results = dict()
-
-    for attr in tqdm(factors_of_interest):
-
-        Y_c = preprocessing.LabelEncoder().fit_transform(Y[:, ds_utils.get_dataset_module(dataset).attribute2idx[attr]])
-
-        counts = Counter(Y_c)
-        majority = list(counts.keys())[np.argmax(counts.values())] * np.ones(Y_c.shape[0])
-        acc, f1 = metrics.accuracy_score(Y_c, majority), metrics.f1_score(Y_c, majority, average="macro")
-        results[attr] = {"accuracy": round(acc, 3), "f1": round(f1, 3)}
 
     return results
 
@@ -162,37 +253,54 @@ def baseline_predictability(
 def evaluate_space_with_predictability(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    ixs: List[int],
     dataset: str,
-    factors_of_interest: List[str],
+    factors: List[str],
+    fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     nonlinear: bool = False,
     standardise: bool = True,
 ) -> Dict[str, float]:
+    """
+    Wrapper function around the `evaluate_space_with_mutual_information` function for the discrete target case.
+    Args:
+        Z: The latent representations of the entire dataset.
+        Y: The ground-truth values of all the factors of the entire dataset.
+        fitting_indices: Optional list of indices of the datapoints to use for estimation.
+        A: Optional projection matrix to a linear subspace to evaluate.
+        nonlinear: Whether to evaluate with a nonlinear model (an SVM classifier).
+        dataset, factors, standardise: Parameters for the `evaluate_space_with_mutual_information` function.
+
+    Returns:
+        Dictionary of `evaluate_space_with_mutual_information` results for all factors specified in `factors`.
+    """
     results = dict()
 
     Z = _get_Z(Z, A, standardise, to_numpy=True)
 
-    for attr in tqdm(factors_of_interest):
+    if fitting_indices is None:
+        # If no subset is provided, train on the entire dataset.
+        fitting_indices = list(range(Z.shape[0]))
+
+    for attr in tqdm(factors):
 
         Y_c = preprocessing.LabelEncoder().fit_transform(Y[:, ds_utils.get_dataset_module(dataset).attribute2idx[attr]])
 
         if nonlinear:
             r = evaluate_space_with_a_model(
-                Z[ixs],
-                Y_c[ixs],
-                Z[list(set(range(len(Z))) - set(ixs))],
-                Y_c[list(set(range(len(Z))) - set(ixs))],
+                Z[fitting_indices],
+                Y_c[fitting_indices],
+                Z[list(set(range(len(Z))) - set(fitting_indices))],
+                Y_c[list(set(range(len(Z))) - set(fitting_indices))],
                 model=svm.SVC(C=0.1, random_state=1),
                 mode="class",
             )
 
         else:
             r = evaluate_space_with_a_model(
-                Z[ixs],
-                Y_c[ixs],
-                Z[list(set(range(len(Z))) - set(ixs))],
-                Y_c[list(set(range(len(Z))) - set(ixs))],
+                Z[fitting_indices],
+                Y_c[fitting_indices],
+                Z[list(set(range(len(Z))) - set(fitting_indices))],
+                Y_c[list(set(range(len(Z))) - set(fitting_indices))],
                 model=linear_model.SGDClassifier(loss="log_loss", random_state=1),
                 mode="class",
             )
@@ -204,32 +312,61 @@ def evaluate_space_with_predictability(
 
 def subspace_entropy(
     Z: torch.Tensor,
-    ixs: List[int],
+    fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     standardise: bool = True,
 ) -> float:
+    """
+    Estimates the entropy of the (projected) representation space `Z` with `MIST`.
+
+    Args:
+        Z: The latent representations of the entire dataset.
+        fitting_indices: Optional list of indices of the datapoints to use for estimation.
+        A: Optional projection matrix to a linear subspace to evaluate.
+        standardise: Whether to standardise the data.
+
+    Returns:
+        Estimate of the entropy.
+    """
 
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
-    return model_comparison.find_common_subspaces_with_mutual_information(Z, Z, ixs, (Z.shape[1], Z.shape[1]))[-1]
+    return model_comparison.find_common_subspaces_with_mutual_information(
+        Z_1=Z, Z_2=Z, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z.shape[1])
+    )[-1]
 
 
 def subspace_mutual_information(
     Z: torch.Tensor,
-    ixs: List[int],
+    fitting_indices: List[int],
     A: torch.Tensor,
     standardise: bool = True,
 ) -> float:
+    """
+    Estimates the mutual information between a linear subspace defined by the projection matrix `A` and the original
+    representation space `Z` with `MIST`.
+
+    Args:
+        Z: The latent representations of the entire dataset.
+        fitting_indices: Optional list of indices of the datapoints to use for estimation.
+        A: Optional projection matrix to a linear subspace to evaluate.
+        standardise: Whether to standardise the data.
+
+    Returns:
+        Estimate of the mutual information.
+    """
 
     Z_p = _get_Z(Z, A, standardise, to_numpy=False)
 
-    return model_comparison.find_common_subspaces_with_mutual_information(Z, Z_p, ixs, (Z.shape[1], Z_p.shape[1]))[-1]
+    return model_comparison.find_common_subspaces_with_mutual_information(
+        Z_1=Z, Z_2=Z_p, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z_p.shape[1])
+    )[-1]
 
 
 def subspace_latent_traversals(
     Z: torch.Tensor,
     A: torch.Tensor,
-    trained_model: VAE,
+    model: VAE,
     X: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
     standardise: bool = True,
@@ -237,6 +374,18 @@ def subspace_latent_traversals(
     device: str = "cuda",
     file_name: Optional[str] = None,
 ) -> None:
+    """
+    A wrapper function to traverse the latent subspace defined by the projection matrix `A`.
+    Args:
+        Z: The latent representations of the entire dataset.
+        A: Optional projection matrix to a linear subspace whose traversals to produce.
+        model: The VAE to use for embedding and reconstructing.
+        X: The dataset of the original images to select a starting image from.
+        standardise: Whether to standardise the data.
+        rng: The random generator to generate the initial sample randomly if one is not provided by `starting_x`.
+        starting_x, device, file_name: Arguments for the `latent_traversals` function in `visualisation.py`.
+
+    """
 
     if starting_x is None:
         assert X is not None
@@ -246,7 +395,7 @@ def subspace_latent_traversals(
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
     visualisation.latent_traversals(
-        vae_model=trained_model,
+        vae_model=model,
         A_hat=A.cuda(),
         Z=Z,
         starting_x=starting_x.cuda(),
@@ -259,7 +408,7 @@ def subspace_latent_traversals(
 def subspace_heatmaps(
     Z: torch.Tensor,
     Y: torch.Tensor,
-    attribute_names: List[str],
+    factor_names: List[str],
     A: Optional[torch.Tensor] = None,
     standardise: bool = True,
     target: str = "ground-truth",
@@ -269,6 +418,17 @@ def subspace_heatmaps(
     q: float = 0.25,
     file_name: Optional[str] = None,
 ) -> None:
+    """
+    Splot the (sub)space heatmaps; either using `factor_trend` or `factor_heatmap` in the `visualisation.py` module.
+    Args:
+        Z: The original representations.
+        Y: The ground-truth values of the factors of variation.
+        factor_names: The names of the factors whose heatmaps to plot.
+        A: Optional projection matrix to a linear subspace whose heatmaps to produce.
+        standardise: Whether to standardise the data.
+        target, interpolate, N, k, q, file_name: parameters for the `factor_heatmap` or `factor_trend` functions.
+
+    """
 
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
@@ -284,6 +444,6 @@ def subspace_heatmaps(
         N=N,
         k=k,
         q=q,
-        attribute_names=attribute_names,
+        attribute_names=factor_names,
         file_name=file_name,
     )

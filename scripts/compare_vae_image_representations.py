@@ -76,16 +76,21 @@ def _evaluate_subspace_factor_information(
 ) -> Dict[MIEstimationMethod, Dict[str, float]]:
 
     methods = (
-        [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
+        [
+            MIEstimationMethod.NAIVE_KSG,
+            MIEstimationMethod.KSG,
+            MIEstimationMethod.MIST,
+            MIEstimationMethod.SKLEARN,
+        ]
         if subspace_size == 1
-        else [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
+        else [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
     )
     result = {
         method: space_evaluation.evaluate_space_with_mutual_information(
             Z=Z["val"],
             Y=Y["val"],
             A=A,
-            ixs=train_ixs[method],
+            fitting_indices=train_ixs[method],
             dataset=cfg.dataset,
             factors=[(factor,) for factor in cfg.factors_of_interest],
             method=method,
@@ -117,7 +122,7 @@ def _compute_factor_information_spearman_correlation(
     experiment_results: Dict[str, float],
 ) -> None:
 
-    for method in [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]:
+    for method in [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]:
         full_space_mis = np.asarray(
             list(factor_information[pair_id[0]][method].values())
             + list(factor_information[pair_id[1]][method].values())
@@ -145,7 +150,7 @@ def _plot_latent_traversals(
         space_evaluation.subspace_latent_traversals(
             Z=Z["val"],
             A=A,
-            trained_model=model,
+            model=model,
             X=X,
             device=device,
             standardise=False,
@@ -171,7 +176,7 @@ def _plot_heatmaps_and_trends(
                 Z["val"],
                 Y["val"][:, [dsutils.get_dataset_module(dataset).attribute2idx[a] for a in factors_of_interest]],
                 A=A,
-                attribute_names=factors_of_interest,
+                factor_names=factors_of_interest,
                 interpolate=True,
                 file_name=f"factor_heatmap_m{ix}_p{pair_id}_size{subspace_size}_{subspace_method}.png",
             )
@@ -212,8 +217,8 @@ def _process_subspace(
                     Y=Y,
                     A=A,
                     train_ixs={
-                        MIEstimationMethod.KSG: train_ixs,
-                        MIEstimationMethod.LATTE_KSG: latte_ksg_train_ixs,
+                        MIEstimationMethod.NAIVE_KSG: train_ixs,
+                        MIEstimationMethod.KSG: latte_ksg_train_ixs,
                         MIEstimationMethod.MIST: train_ixs,
                         MIEstimationMethod.SKLEARN: train_ixs,
                     },
@@ -307,13 +312,13 @@ def _compute_information_about_factors(
             method: space_evaluation.evaluate_space_with_mutual_information(
                 Z=z,
                 Y=Y,
-                ixs=train_ixs if method != MIEstimationMethod.LATTE_KSG else latte_ksg_train_ixs,
+                fitting_indices=train_ixs if method != MIEstimationMethod.KSG else latte_ksg_train_ixs,
                 dataset=cfg.dataset,
                 factors=[(factor,) for factor in cfg.factors_of_interest],
                 method=method,
                 standardise=False,
             )
-            for method in [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
+            for method in [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
         }
         for z in Z
     ]
@@ -363,8 +368,8 @@ def _process_latent_representations(
             A_1, _, A_2, _, mi = model_comparison.find_common_subspaces_with_mutual_information(
                 Z_1=Z["val"][ii],
                 Z_2=Z["val"][jj],
-                ixs=train_ixs,
-                subspace_size=(s1, s2),
+                fitting_indices=train_ixs,
+                subspace_sizes=(s1, s2),
                 standardise=False,
                 max_epochs=cfg.mist_max_epochs,
                 gpus=cfg.gpus,
@@ -396,7 +401,7 @@ def _process_latent_representations(
             A_1, _, A_2, _ = model_comparison.find_common_subspaces_with_correlation(
                 Z_1=Z["val"][ii].numpy(),
                 Z_2=Z["val"][jj].numpy(),
-                ixs=train_ixs,
+                fitting_indices=train_ixs,
                 subspace_size=s1,
                 standardise=False,
             )

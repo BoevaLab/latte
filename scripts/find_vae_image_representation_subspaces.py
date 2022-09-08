@@ -21,7 +21,7 @@ from pythae.models import VAE, AutoModel
 from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 
 from latte.dataset import utils as dsutils
-from latte.models.vae import utils as vaeutils
+from latte.models.vae import utils as vae_utils
 from latte.evaluation import subspace_evaluation
 from latte.utils.visualisation import visualisation
 from latte.models.rlace import estimation as rlace_estimation
@@ -131,6 +131,10 @@ def _process_alternative_factors(
     experiment_results: Dict[str, float],
     cfg: MISTConfig,
 ) -> None:
+    """
+    Computes the information about a specified set of alternative factors in the entire VAE representation space and
+    the optimal projection space w.r.t. some other factors to determine the amount of disentanglement.
+    """
 
     for factor in alternative_factors:
         for M, result_key in zip(
@@ -140,6 +144,8 @@ def _process_alternative_factors(
                 f"I({factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})",
             ],
         ):
+            # Determine the amount of mutual information in the (projected) representation space about the
+            # specified factor of variation.
             _determine_factor_mutual_information(
                 Z=Z,
                 Y=Y,
@@ -164,12 +170,21 @@ def _compute_predictability_of_attributes(
     cfg: MISTConfig,
     rng: dsutils.RandomGenerator,
 ) -> None:
+    """
+    Computes the linear predictability of factors in `Y` with `evaluate_space_with_predictability`.
+    """
 
-    baseline_scores = space_evaluation.baseline_predictability(Y, cfg.dataset, factors)
+    baseline_scores = space_evaluation.baseline_predictability(Y=Y, dataset=cfg.dataset, factors=factors)
 
     predictor_train_ixs = rng.choice(int(Z.shape[0]), size=cfg.estimation_N, replace=False)
     factor_predictability = space_evaluation.evaluate_space_with_predictability(
-        Z, Y, predictor_train_ixs, cfg.dataset, factors, nonlinear=False, standardise=False
+        Z=Z,
+        Y=Y,
+        fitting_indices=predictor_train_ixs,
+        dataset=cfg.dataset,
+        factors=factors,
+        nonlinear=False,
+        standardise=False,
     )
 
     for attr in baseline_scores:
@@ -182,6 +197,9 @@ def _compute_predictability_of_attributes(
 
 
 def _project_onto_subspace(Z: torch.Tensor, A: torch.Tensor, standardise: bool = True) -> torch.Tensor:
+    """
+    Utility function to project onto a subspace defined by `A` and optionally standardise the projections.
+    """
 
     # Construct the representations by the projection VAE
     Z_p = Z @ A.detach().cpu()
@@ -247,13 +265,14 @@ def _process_subspace(
 
     # Construct the VAE model which projects onto the subspace defined by `A_hat`
     # It has the same config as the original model, so we copy it, we just change the `latent_dim`
-    projection_model = vaeutils.get_vae_class(cfg.model_class)(
+    projection_model = vae_utils.get_vae_class(cfg.model_class)(
         model_config=replace(model.model_config),
         encoder=ProjectionBaseEncoder(model.encoder, A),
         decoder=ProjectionBaseDecoder(model.decoder, A),
     )
     projection_model.model_config.latent_dim = projection_subspace_size
 
+    # Generate images from the optimal subspace
     _fit_gmm(
         X=X,
         Z=Z_p,
@@ -265,6 +284,7 @@ def _process_subspace(
         f"{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
     )
 
+    # Evaluate the subspace graphically
     for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [None, A], ["full", "projected"]):
         visualisation.graphically_evaluate_model(
             model,
@@ -293,21 +313,24 @@ def _process_subspace(
         axis_mi.to_csv(f"axis_factor_mi_{method}_{subspace_size}_{factors}_{estimation_N}.csv")
 
         if projection_subspace_size <= 2:
+            # If dimensionality of the subspace is at most 2, also plot the heatmaps.
             space_evaluation.subspace_heatmaps(
                 Z_p,
                 Y,
-                attribute_names=factors + alternative_factors,
+                factor_names=factors + alternative_factors,
                 standardise=False,
                 file_name=f"heatmaps_{method}_{subspace_size}_{factors}_{estimation_N}.png",
             )
 
+        # Process the specified set of alternative factors to determine the degree to which they are captured
+        # in the optimal subspace.
         _process_alternative_factors(
             Z=Z,
             Y=Y,
             A=A,
             ixs={
-                MIEstimationMethod.KSG: evaluation_ixs,
-                MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+                MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+                MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
                 MIEstimationMethod.MIST: evaluation_ixs,
                 MIEstimationMethod.SKLEARN: evaluation_ixs,
             },
@@ -321,13 +344,14 @@ def _process_subspace(
         )
 
     if erased:
+        # Determine how much information is captured in the complement of the optimal subspace
         _determine_factor_mutual_information(
             Z=Z_p,
             Y=Y,
             A=A,
             ixs={
-                MIEstimationMethod.KSG: evaluation_ixs,
-                MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+                MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+                MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
                 MIEstimationMethod.MIST: evaluation_ixs,
                 MIEstimationMethod.SKLEARN: evaluation_ixs,
             },
@@ -337,6 +361,8 @@ def _process_subspace(
             cfg=cfg,
         )
 
+    # Evaluate (the optimal subspace or its complement) with the (linear) predictability of the factors w.r.t. which
+    # the subspace was estimated.
     _compute_predictability_of_attributes(
         Z_p,
         Y,
@@ -381,6 +407,10 @@ def _find_subspace(
     train_ixs: np.ndarray,
     cfg: MISTConfig,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Determines the optimal subspace capturing the most information about the specified set of factors with the specified
+    method.
+    """
 
     factors_of_interest_idx = [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
     print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors}.")
@@ -389,8 +419,8 @@ def _find_subspace(
             Z=Z[train_ixs],
             Y=Y[train_ixs][:, factors_of_interest_idx],  # Train on the chosen subset of the data
             subspace_size=subspace_size,
-            mist_max_epochs=cfg.mist_max_epochs,
-            mist_batch_size=cfg.mist_batch_size,
+            max_epochs=cfg.mist_max_epochs,
+            batch_size=cfg.mist_batch_size,
             mine_network_width=cfg.mine_network_width,
             mine_learning_rate=cfg.mine_learning_rate,
             manifold_learning_rate=cfg.manifold_learning_rate,
@@ -443,6 +473,9 @@ def _fit_gmm(
     model_type: str,
     file_name: str,
 ) -> None:
+    """
+    Fits a GMM sampler on the representation space defined by the VAE model and generates images with it.
+    """
 
     # Fit a GMM model on the produced latent space
     print("Fitting the GMM.")
@@ -471,6 +504,9 @@ def _estimate_factor_entropies(
     factors_idx: List[int],
     experiment_results: Dict[str, float],
 ) -> None:
+    """
+    Estimates the entropy of the specified set of factors.
+    """
 
     # Estimate the entropy of each of the factors on the validation split
     for ii, factor_idx in enumerate(factors_idx):
@@ -489,19 +525,27 @@ def _determine_factor_mutual_information(
     cfg: MISTConfig,
     A: Optional[torch.Tensor] = None,
 ) -> None:
+    """
+    Determines the mutual information between the specified set of factors in `Y` and the representations `Z`.
+    """
     print(f"Training MIST to determine the information about {factors} in the space.")
 
     methods = (
-        [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST, MIEstimationMethod.SKLEARN]
+        [
+            MIEstimationMethod.NAIVE_KSG,
+            MIEstimationMethod.KSG,
+            MIEstimationMethod.MIST,
+            MIEstimationMethod.SKLEARN,
+        ]
         if Z.shape[1] == 1
-        else [MIEstimationMethod.KSG, MIEstimationMethod.LATTE_KSG, MIEstimationMethod.MIST]
+        else [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
     )
 
     for method in methods:
         result = space_evaluation.evaluate_space_with_mutual_information(
             Z=Z,
             Y=Y,
-            ixs=ixs[method],
+            fitting_indices=ixs[method],
             dataset=cfg.dataset,
             factors=[tuple(factors)],
             A=A,
@@ -543,6 +587,8 @@ def _process_factors_of_interest(
         rng: The random generator.
     """
 
+    # Estimate the entropy of the factors to determine the maximal amount of information which can be captured about
+    # them.
     _estimate_factor_entropies(
         Y=Y["val"],
         factors=factors,
@@ -558,8 +604,8 @@ def _process_factors_of_interest(
         Z=Z["val"],
         Y=Y["val"],
         ixs={
-            MIEstimationMethod.KSG: evaluation_ixs,
-            MIEstimationMethod.LATTE_KSG: latte_ksg_evaluation_ixs,
+            MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+            MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
             MIEstimationMethod.MIST: evaluation_ixs,
             MIEstimationMethod.SKLEARN: evaluation_ixs,
         },
@@ -596,6 +642,9 @@ def _process_factors_of_interest(
 
             for method in methods:
                 print(f">>> INVESTIGATING {method}")
+
+                # Find the subspace capturing the specified set of factors using one of the methods.
+                # Returns the projection matrix onto the subspace and the complement of the subspace.
                 A, E = _find_subspace(
                     Z=Z["train"],
                     Y=Y["train"],
@@ -636,11 +685,14 @@ def _process_factors_of_interest(
                 print("\n\n\n")
 
 
-def _get_representations(trained_model: VAE, X: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def _get_representations(model: VAE, X: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """
+    Computes and normalises the representations given by the passed VAE model.
+    """
     main_key = "train" if "train" in X else "val"
 
     # Get the latent representations given by the original VAE
-    Z = {split: vaeutils.get_latent_representations(trained_model, S) for split, S in X.items()}
+    Z = {split: vae_utils.get_latent_representations(model, S) for split, S in X.items()}
 
     full_scaler = StandardScaler().fit(Z[main_key])
     Z = {split: torch.from_numpy(full_scaler.transform(S.numpy())).float() for split, S in Z.items()}
@@ -649,7 +701,9 @@ def _get_representations(trained_model: VAE, X: Dict[str, torch.Tensor]) -> Dict
 
 
 def _save_results(experiment_results: Dict[str, float]) -> None:
-    # Save the experiment results in a data frame
+    """
+    Save the experiment results in a data frame
+    """
     results_df = pd.DataFrame({"Value": experiment_results})
     print("The final experiment results:")
     print(results_df)
@@ -676,20 +730,21 @@ def main(cfg: MISTConfig):
     device = "cuda" if cfg.gpus > 0 else "cpu"
 
     # Load the trained VAE
-    trained_model = AutoModel.load_from_folder(cfg.vae_model_file_path).to(device)
+    model = AutoModel.load_from_folder(cfg.vae_model_file_path).to(device)
 
+    # Load the data from the pre-split dataset
     X, Y = dsutils.load_split_data(
         {"train": cfg.file_paths_x[0], "val": cfg.file_paths_x[1], "test": cfg.file_paths_x[2]},
         {"train": cfg.file_paths_y[0], "val": cfg.file_paths_y[1], "test": cfg.file_paths_y[2]},
         cfg.dataset,
     )
-    Z = _get_representations(trained_model, X)
+    Z = _get_representations(model, X)
 
     # Generate samples from the model
     _fit_gmm(
         X=X["val"],
         Z=Z["val"],
-        model=trained_model,
+        model=model,
         cfg=cfg,
         experiment_results=experiment_results,
         model_type="full",
@@ -698,7 +753,7 @@ def main(cfg: MISTConfig):
 
     # Visually inspect the reconstructions and traversals
     visualisation.graphically_evaluate_model(
-        trained_model,
+        model,
         X["val"],
         homotopy_n=cfg.plot_n_images,
         n_rows=cfg.plot_nrows,
@@ -716,7 +771,7 @@ def main(cfg: MISTConfig):
             X,
             Z,
             Y,
-            trained_model,
+            model,
             cfg.factors_of_interest[ii],
             cfg.alternative_factors[ii],
             experiment_results,

@@ -76,7 +76,8 @@ def _construct_mist(
         x_size: Dimensionality of the observed distribution.
         z_max_size: Dimensionality of the distribution in regard to which mutual information should be maximised.
         z_min_size: Dimensionality of the distribution in regard to which mutual information should be minimised.
-        subspace_size: Dimensionality of the subspace onto which the first distribution should be projected.
+        subspace_size: Dimensionality of the subspace onto which the first distribution should be projected or a
+                       2-tuple of the dimensionalities the first and the second distributions should be projected onto.
         mine_network_width: Size of the hidden layers of the standard `MINE` network.
                             Will be used if the `statistics_network` is not provided.
         club_network_width: Size of the hidden layers of the standard `MINE` network.
@@ -372,7 +373,7 @@ def fit(
         f"distance from orthogonal = {torch.linalg.norm(A_hat_z.T @ A_hat_z - torch.eye(A_hat_z.shape[1]))}"
     )
 
-    # Construct the result
+    # Construct the result with the projection matrices and mutual information estimates.
     mi_estimate = MISTResult(
         mutual_information=training_results["test_results"]["test_mutual_information_mine_epoch"],
         loss=training_results["test_results"]["test_loss_epoch"],
