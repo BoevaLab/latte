@@ -198,7 +198,7 @@ def synthetic_data(
         plt.show()
 
 
-def probabilistic_pca_data(
+def ppca_data(
     X: np.ndarray,
     Z: np.ndarray,
     A: np.ndarray,

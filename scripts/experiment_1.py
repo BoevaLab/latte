@@ -185,7 +185,7 @@ def fit(
 
         # If you only need a figure, you should run the script with n_runs=1
         # and only a small number of possible settings of parameters
-        dataset_visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval[:, dataset.measured_factors],
             A=dataset.A[:, dataset.measured_factors],
@@ -195,7 +195,7 @@ def fit(
             f"_s{noise_std:.3f}_o{len(X_orient)}_mo_{manifold_optimisation}.png",
             title="Observable data and the true subspace",
         )
-        dataset_visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval[:, dataset.measured_factors],
             A=dataset.A[:, dataset.measured_factors],
@@ -283,7 +283,7 @@ def fit(
     )
 
     if n == 3 and d == 2:
-        dataset_visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval,
             A=dataset.A[:, dataset.measured_factors],
