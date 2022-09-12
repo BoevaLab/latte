@@ -142,7 +142,7 @@ def test_nonlinear_data(N: int, n: int, d: int, transform: List[Callable[[np.nda
 
 @pytest.mark.parametrize(
     "N",
-    [64000],
+    [32000],
 )
 @pytest.mark.parametrize(
     "n",
@@ -150,7 +150,7 @@ def test_nonlinear_data(N: int, n: int, d: int, transform: List[Callable[[np.nda
 )
 @pytest.mark.parametrize(
     "d",
-    [1, 2],
+    [1],
 )
 def test_probabilistic_pca_data_mi_estimation_full_space(N: int, n: int, d: int) -> None:
 
