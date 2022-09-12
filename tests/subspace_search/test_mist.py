@@ -142,7 +142,7 @@ def test_nonlinear_data(N: int, n: int, d: int, transform: List[Callable[[np.nda
 
 @pytest.mark.parametrize(
     "N",
-    [32000],
+    [64000],
 )
 @pytest.mark.parametrize(
     "n",
