@@ -135,14 +135,14 @@ def test_nonlinear_data(N: int, n: int, d: int, transform: List[Callable[[np.nda
         for _ in range(1000)
     ]
 
-    assert manifold_utils.is_orthonormal(estimation_result.A_1)
+    assert manifold_utils.is_orthonormal(estimation_result.A_1, atol=1e-2)
 
     assert evaluation_result["Value"]["Difference between subspaces"] < np.quantile(random_matrices_results, 0.05)
 
 
 @pytest.mark.parametrize(
     "N",
-    [20000],
+    [32000],
 )
 @pytest.mark.parametrize(
     "n",
@@ -173,7 +173,7 @@ def test_probabilistic_pca_data_mi_estimation_full_space(N: int, n: int, d: int)
 
 @pytest.mark.parametrize(
     "N",
-    [20000],
+    [32000],
 )
 @pytest.mark.parametrize(
     "n",
