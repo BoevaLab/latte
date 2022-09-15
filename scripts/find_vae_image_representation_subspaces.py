@@ -5,7 +5,7 @@ It takes the representations of a pre-trained VAE and discovers in them the subs
 capturing the most information about a set of given attributes/latent factors.
 The results are quantified, plotted, and saved.
 """
-from typing import Tuple, Dict, Optional, List
+from typing import Tuple, Dict, Optional, List, Any
 from dataclasses import dataclass, replace, field
 
 import numpy as np
@@ -128,7 +128,7 @@ def _process_alternative_factors(
     alternative_factors: List[str],
     subspace_size: int,
     estimation_N: int,
-    experiment_results: Dict[str, float],
+    factor_mutual_informations: List[List[Any]],
     cfg: MISTConfig,
 ) -> None:
     """
@@ -140,8 +140,8 @@ def _process_alternative_factors(
         for M, result_key in zip(
             [None, A],
             [
-                f"I({factor}, VAE | {method} N={estimation_N})",
-                f"I({factor}, {subspace_size}-{factors}-subspace | {method} N={estimation_N})",
+                [factor, method, "full", "N/A", False, estimation_N],
+                [factor, method, subspace_size, factors, False, estimation_N],
             ],
         ):
             # Determine the amount of mutual information in the (projected) representation space about the
@@ -152,9 +152,9 @@ def _process_alternative_factors(
                 A=M,
                 ixs=ixs,
                 factors=[factor],
-                experiment_results=experiment_results,
-                result_key=result_key,
+                prefix=result_key,
                 cfg=cfg,
+                factor_mutual_informations=factor_mutual_informations,
             )
 
 
@@ -166,7 +166,8 @@ def _compute_predictability_of_attributes(
     subspace_size: int,
     erased: bool,
     estimation_N: int,
-    experiment_results: Dict[str, float],
+    attribute_predictability: List[List[Any]],
+    baseline_attribute_predictability: List[List[Any]],
     cfg: MISTConfig,
     rng: dsutils.RandomGenerator,
 ) -> None:
@@ -187,13 +188,13 @@ def _compute_predictability_of_attributes(
         standardise=False,
     )
 
-    for attr in baseline_scores:
-        experiment_results[
-            f"Accuracy({attr} | {subspace_size}, {erased}, {estimation_N}, {method})"
-        ] = factor_predictability[attr]
-        experiment_results[
-            f"Baseline Accuracy({attr} | {subspace_size}, {erased}, {estimation_N}, {method})"
-        ] = baseline_scores[attr]["accuracy"]
+    for attribute in baseline_scores:
+        attribute_predictability.append(
+            [subspace_size, erased, estimation_N, method, attribute, factor_predictability[attribute]]
+        )
+        baseline_attribute_predictability.append(
+            [subspace_size, erased, estimation_N, method, attribute, baseline_scores[attribute]["accuracy"]]
+        )
 
 
 def _project_onto_subspace(Z: torch.Tensor, A: torch.Tensor, standardise: bool = True) -> torch.Tensor:
@@ -222,7 +223,10 @@ def _process_subspace(
     subspace_size: int,
     erased: bool,
     estimation_N: int,
-    experiment_results: Dict[str, float],
+    factor_mutual_informations: List[List[Any]],
+    log_likelihoods: List[List[Any]],
+    attribute_predictability: List[List[Any]],
+    baseline_attribute_predictability: List[List[Any]],
     cfg: MISTConfig,
     device: str,
     rng: dsutils.RandomGenerator,
@@ -246,7 +250,6 @@ def _process_subspace(
                        of the matrix.
         erased: Whether the A_hat projects onto the complement of the maximum-information subspace or not.
         estimation_N: Number of data points used for training.
-        experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
         device: The device to load the data to.
         rng: The random generator.
@@ -278,10 +281,10 @@ def _process_subspace(
         Z=Z_p,
         model=projection_model,
         cfg=cfg,
-        experiment_results=experiment_results,
         model_type="projected",
         file_name=f"generated_images_projected_{method}_"
         f"{'erased' if erased else 'projected'}_{subspace_size}_{factors}_{estimation_N}.png",
+        log_likelihoods=log_likelihoods,
     )
 
     # Evaluate the subspace graphically
@@ -339,8 +342,8 @@ def _process_subspace(
             alternative_factors=alternative_factors,
             subspace_size=subspace_size,
             estimation_N=estimation_N,
-            experiment_results=experiment_results,
             cfg=cfg,
+            factor_mutual_informations=factor_mutual_informations,
         )
 
     if erased:
@@ -356,24 +359,25 @@ def _process_subspace(
                 MIEstimationMethod.SKLEARN: evaluation_ixs,
             },
             factors=factors,
-            experiment_results=experiment_results,
-            result_key=f"I({factors}, erased={erased}-{subspace_size}-subspace | {method} N={estimation_N})",
+            prefix=[factors, method, subspace_size, factors, erased, estimation_N],
+            factor_mutual_informations=factor_mutual_informations,
             cfg=cfg,
         )
 
     # Evaluate (the optimal subspace or its complement) with the (linear) predictability of the factors w.r.t. which
     # the subspace was estimated.
     _compute_predictability_of_attributes(
-        Z_p,
-        Y,
-        method,
-        factors,
-        subspace_size,
-        erased,
-        estimation_N,
-        experiment_results,
-        cfg,
-        rng,
+        Z=Z_p,
+        Y=Y,
+        method=method,
+        factors=factors,
+        subspace_size=subspace_size,
+        erased=erased,
+        estimation_N=estimation_N,
+        cfg=cfg,
+        rng=rng,
+        attribute_predictability=attribute_predictability,
+        baseline_attribute_predictability=baseline_attribute_predictability,
     )
 
 
@@ -400,11 +404,11 @@ def _find_subspace(
     Z: torch.Tensor,
     Y: torch.Tensor,
     factors: List[str],
-    experiment_results: Dict[str, float],
     subspace_size: int,
     fitting_N: int,
     method: str,
     train_ixs: np.ndarray,
+    optimal_subspace_mutual_information: List[List[Any]],
     cfg: MISTConfig,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -429,9 +433,9 @@ def _find_subspace(
             num_workers=cfg.num_workers,
             gpus=cfg.gpus,
         )
-        experiment_results[
-            f"I({factors}, {subspace_size}-subspace | {method} N={fitting_N})"
-        ] = result.mutual_information
+        optimal_subspace_mutual_information.append(
+            [factors, subspace_size, method, fitting_N, result.mutual_information]
+        )
 
     elif method == "rLACE":
         assert len(factors_of_interest_idx) == 1
@@ -469,9 +473,9 @@ def _fit_gmm(
     Z: torch.Tensor,
     model: VAE,
     cfg: MISTConfig,
-    experiment_results: Dict[str, float],
     model_type: str,
     file_name: str,
+    log_likelihoods: List[List[Any]],
 ) -> None:
     """
     Fits a GMM sampler on the representation space defined by the VAE model and generates images with it.
@@ -493,16 +497,16 @@ def _fit_gmm(
     )
 
     # Compute the log likelihood of the validation data according to the sampler
-    org_ll = gmm_sampler.gmm.score(Z)
-    print(f"The log likelihood of the validation data is {org_ll}.")
-    experiment_results[f"{model_type} model validation log likelihood"] = org_ll
+    ll = gmm_sampler.gmm.score(Z)
+    print(f"The log likelihood of the validation data is {ll}.")
+    log_likelihoods.append([model_type, ll])
 
 
 def _estimate_factor_entropies(
     Y: torch.Tensor,
     factors: List[str],
     factors_idx: List[int],
-    experiment_results: Dict[str, float],
+    factor_entropies: List[List[Any]],
 ) -> None:
     """
     Estimates the entropy of the specified set of factors.
@@ -512,7 +516,7 @@ def _estimate_factor_entropies(
     for ii, factor_idx in enumerate(factors_idx):
         H = mutual_info_regression(Y[:, factor_idx].reshape((-1, 1)), Y[:, factor_idx].flatten())[0]
         print(f"H({factors[ii]}) = {H}.")
-        experiment_results[f"H({factors[ii]})"] = H
+        factor_entropies.append([factors[ii], H])
 
 
 def _determine_factor_mutual_information(
@@ -520,8 +524,8 @@ def _determine_factor_mutual_information(
     Y: torch.Tensor,
     ixs: Dict[MIEstimationMethod, List[int]],
     factors: List[str],
-    experiment_results: Dict[str, float],
-    result_key: str,
+    factor_mutual_informations: List[List[Any]],
+    prefix: List[Any],
     cfg: MISTConfig,
     A: Optional[torch.Tensor] = None,
 ) -> None:
@@ -552,7 +556,7 @@ def _determine_factor_mutual_information(
             method=method,
             standardise=False,
         )
-        experiment_results[result_key + f"method={method}"] = result[tuple(factors)]
+        factor_mutual_informations.append(prefix + [method, result[tuple(factors)]])
         print(f"The information about {factors} by method {method} in the space is {result[tuple(factors)]:.3f}.")
 
 
@@ -563,7 +567,12 @@ def _process_factors_of_interest(
     model: VAE,
     factors: List[str],
     alternative_factors: List[str],
-    experiment_results: Dict[str, float],
+    factor_mutual_informations: List[List[Any]],
+    attribute_predictability: List[List[Any]],
+    baseline_attribute_predictability: List[List[Any]],
+    factor_entropies: List[List[Any]],
+    log_likelihoods: List[List[Any]],
+    optimal_subspace_mutual_information: List[List[Any]],
     cfg: MISTConfig,
     device: str,
     rng: dsutils.RandomGenerator,
@@ -581,7 +590,6 @@ def _process_factors_of_interest(
         factors: The set of factors of interest to consider.
         alternative_factors: The set of factors for which to check how much information was captured about them in the
                              found subspace.
-        experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
         device: The device to load the data to.
         rng: The random generator.
@@ -593,7 +601,7 @@ def _process_factors_of_interest(
         Y=Y["val"],
         factors=factors,
         factors_idx=[dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors],
-        experiment_results=experiment_results,
+        factor_entropies=factor_entropies,
     )
 
     # To find out how much information about the factors of interest there is in the entire learned representation
@@ -610,9 +618,9 @@ def _process_factors_of_interest(
             MIEstimationMethod.SKLEARN: evaluation_ixs,
         },
         factors=factors,
-        experiment_results=experiment_results,
-        result_key=f"I({factors}, VAE)",
+        prefix=[factors, "N/A", "full", "N/A", "N/A", cfg.estimation_N],
         cfg=cfg,
+        factor_mutual_informations=factor_mutual_informations,
     )
 
     # Get the number of data points the MIST model will be trained with
@@ -649,12 +657,12 @@ def _process_factors_of_interest(
                     Z=Z["train"],
                     Y=Y["train"],
                     factors=factors,
-                    experiment_results=experiment_results,
                     subspace_size=subspace_size,
                     fitting_N=fitting_N,
                     method=method,
                     train_ixs=train_ixs[fitting_N],
                     cfg=cfg,
+                    optimal_subspace_mutual_information=optimal_subspace_mutual_information,
                 )
 
                 # Process and analyze the subspace defined by the projection matrix onto the optimal subspace and
@@ -675,10 +683,13 @@ def _process_factors_of_interest(
                         subspace_size=subspace_size,
                         erased=erased,
                         estimation_N=fitting_N,
-                        experiment_results=experiment_results,
                         cfg=cfg,
                         device=device,
                         rng=rng,
+                        attribute_predictability=attribute_predictability,
+                        baseline_attribute_predictability=baseline_attribute_predictability,
+                        log_likelihoods=log_likelihoods,
+                        factor_mutual_informations=factor_mutual_informations,
                     )
                     print("\n --------------------------------------- \n\n")
 
@@ -700,14 +711,66 @@ def _get_representations(model: VAE, X: Dict[str, torch.Tensor]) -> Dict[str, to
     return Z
 
 
-def _save_results(experiment_results: Dict[str, float]) -> None:
-    """
-    Save the experiment results in a data frame
-    """
-    results_df = pd.DataFrame({"Value": experiment_results})
-    print("The final experiment results:")
-    print(results_df)
-    results_df.to_csv("experiment_results.csv")
+def _save_results(
+    log_likelihoods: List[List[Any]],
+    factor_entropies: List[List[Any]],
+    factor_mutual_informations: List[List[Any]],
+    attribute_predictability: List[List[Any]],
+    baseline_attribute_predictability: List[List[Any]],
+    optimal_subspace_mutual_information: List[List[Any]],
+) -> None:
+    results = [
+        log_likelihoods,
+        factor_entropies,
+        factor_mutual_informations,
+        attribute_predictability,
+        baseline_attribute_predictability,
+        optimal_subspace_mutual_information,
+    ]
+    file_names = [
+        "log_likelihoods.csv",
+        "factor_entropies.csv",
+        "factor_mutual_information.csv",
+        "attribute_predictability.csv",
+        "baseline_attribute_predictability.csv",
+        "optimal_subspace_mutual_information.csv",
+    ]
+    columnss = [
+        ["Model Type", "Log-Likelihood"],
+        ["Factor", "Entropy"],
+        [
+            "Factors",
+            "Subspace Estimation Method",
+            "Subspace Size",
+            "Subspace Factors",
+            "Erased",
+            "Training Set Size",
+            "Mutual Information Estimation Method",
+            "Mutual Information",
+        ],
+        [
+            "Subspace Size",
+            "Erased",
+            "Training Set Size",
+            "Mutual Information Estimation Method",
+            "Factor",
+            "Predictability",
+        ],
+        [
+            "Subspace Size",
+            "Erased",
+            "Training Set Size",
+            "Mutual Information Estimation Method",
+            "Factor",
+            "Baseline Predictability",
+        ],
+        ["Factors", "Subspace Size", "Mutual Information Estimation Method", "Training Set Size", "Mutual Information"],
+    ]
+    for result, file_name, columns in zip(results, file_names, columnss):
+        pd.DataFrame(
+            result,
+            columns=result,
+        ).to_csv(file_name)
 
 
 @hy.main
@@ -726,7 +789,6 @@ def main(cfg: MISTConfig):
     rng = np.random.default_rng(cfg.seed)
 
     # This will keep various metrics from the experiment
-    experiment_results = dict()
     device = "cuda" if cfg.gpus > 0 else "cpu"
 
     # Load the trained VAE
@@ -741,14 +803,15 @@ def main(cfg: MISTConfig):
     Z = _get_representations(model, X)
 
     # Generate samples from the model
+    log_likelihoods = []
     _fit_gmm(
         X=X["val"],
         Z=Z["val"],
         model=model,
         cfg=cfg,
-        experiment_results=experiment_results,
         model_type="full",
         file_name="full_model_generated_images.png",
+        log_likelihoods=log_likelihoods,
     )
 
     # Visually inspect the reconstructions and traversals
@@ -763,24 +826,39 @@ def main(cfg: MISTConfig):
         file_prefix="full_model",
     )
 
+    factor_entropies, factor_mutual_informations = [], []
+    attribute_predictability, baseline_attribute_predictability = [], []
+    optimal_subspace_mutual_information = []
     # Go through the specified factors of interest, and for each provided set, find the subspace capturing the most
     # information about then, and analyse it
     for ii in range(len(cfg.factors_of_interest)):
         print(f"Processing the set of factors {cfg.factors_of_interest[ii]}.")
         _process_factors_of_interest(
-            X,
-            Z,
-            Y,
-            model,
-            cfg.factors_of_interest[ii],
-            cfg.alternative_factors[ii],
-            experiment_results,
-            cfg,
-            device,
-            rng,
+            X=X,
+            Z=Z,
+            Y=Y,
+            model=model,
+            factors=cfg.factors_of_interest[ii],
+            alternative_factors=cfg.alternative_factors[ii],
+            factor_mutual_informations=factor_mutual_informations,
+            cfg=cfg,
+            device=device,
+            rng=rng,
+            attribute_predictability=attribute_predictability,
+            baseline_attribute_predictability=baseline_attribute_predictability,
+            log_likelihoods=log_likelihoods,
+            factor_entropies=factor_entropies,
+            optimal_subspace_mutual_information=optimal_subspace_mutual_information,
         )
 
-    _save_results(experiment_results)
+    _save_results(
+        log_likelihoods,
+        factor_entropies,
+        factor_mutual_informations,
+        attribute_predictability,
+        baseline_attribute_predictability,
+        optimal_subspace_mutual_information,
+    )
 
     print("Finished.")
 

@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Union
 from dataclasses import dataclass
 from itertools import product
 
@@ -70,7 +70,7 @@ def _evaluate_subspace_factor_information(
     ix: int,
     subspace_size: int,
     subspace_method: str,
-    experiment_results: Dict[str, float],
+    subspace_factor_mi: List[List[Union[str, float]]],
     cfg: MISTConfig,
 ) -> Dict[MIEstimationMethod, Dict[str, float]]:
     """
@@ -105,9 +105,7 @@ def _evaluate_subspace_factor_information(
     result = {method: {factors[0]: value for factors, value in r.items()} for method, r in result.items()}
 
     for method, factor in product(methods, cfg.factors_of_interest):
-        experiment_results[
-            f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method})"
-        ] = result[method][factor]
+        subspace_factor_mi.append([ix, pair_id, subspace_size, method, subspace_method, factor, result[method][factor]])
         print(
             f"I(R{ix}, {factor} | pair={pair_id}, subspace_sizes={subspace_size}, {method}, {subspace_method}) = "
             f"{result[method][factor]}"
@@ -122,7 +120,7 @@ def _compute_factor_information_spearman_correlation(
     subspace_method: str,
     subspace_size: Tuple[int, int],
     factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
-    experiment_results: Dict[str, float],
+    factor_information_spearman_correlations: List[List[Union[str, float]]],
 ) -> None:
     """
     To investigate how well different representation spaces agree, we determine how well the order of the order of
@@ -142,7 +140,8 @@ def _compute_factor_information_spearman_correlation(
         subspace_mis = np.asarray(list(results[0][method].values()) + list(results[1][method].values()))
 
         rho = stats.spearmanr(full_space_mis, subspace_mis).correlation
-        experiment_results[f"rho({subspace_method} | pair={pair_id}, method={str(method)}, size={subspace_size})"] = rho
+
+        factor_information_spearman_correlations.append([pair_id, subspace_size, subspace_method, method, rho])
         print(f"rho({subspace_method} | pair={pair_id}, method={str(method)}, size={subspace_size}) = {rho}")
 
 
@@ -213,7 +212,10 @@ def _process_subspaces(
     A_2: torch.Tensor,
     subspace_method: str,
     factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
-    experiment_results: Dict[str, float],
+    subspace_mutual_informations: List[List[Union[str, float]]],
+    subspace_entropies: List[List[Union[str, float]]],
+    factor_information_spearman_correlations: List[List[Union[str, float]]],
+    subspace_factor_mi: List[List[Union[str, float]]],
     cfg: MISTConfig,
     rng: dsutils.RandomGenerator,
 ):
@@ -254,7 +256,7 @@ def _process_subspaces(
                     ix=ix,
                     subspace_size=subspace_size,
                     subspace_method=subspace_method,
-                    experiment_results=experiment_results,
+                    subspace_factor_mi=subspace_factor_mi,
                     cfg=cfg,
                 )
             )
@@ -263,12 +265,8 @@ def _process_subspaces(
             subspace_mi = space_evaluation.subspace_mutual_information(Z["val"], train_ixs, A, standardise=False)
             subspace_entropy = space_evaluation.subspace_entropy(Z["val"], train_ixs, A, standardise=False)
 
-            experiment_results[
-                f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
-            ] = subspace_mi
-            experiment_results[
-                f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method})"
-            ] = subspace_entropy
+            subspace_mutual_informations.append([ix, pair_id, subspace_size, subspace_method, subspace_mi])
+            subspace_entropies.append([ix, pair_id, subspace_size, subspace_method, subspace_entropy])
 
             print(f"MI(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = " f"{subspace_mi}.")
             print(f"H(R{ix} | pair={pair_id}, subspace_sizes={subspace_size}, {subspace_method}) = {subspace_entropy}.")
@@ -286,7 +284,7 @@ def _process_subspaces(
         subspace_method=subspace_method,
         subspace_size=(A_1.shape[1], A_2.shape[1]),
         factor_information=factor_information,
-        experiment_results=experiment_results,
+        factor_information_spearman_correlations=factor_information_spearman_correlations,
     )
 
     # Plot the latent traversals of the subspace
@@ -313,6 +311,67 @@ def _process_subspaces(
         subspace_method=subspace_method,
         subspace_size=(A_1.shape[1], A_2.shape[1]),
     )
+
+
+def _save_results(
+    common_subspace_mi: List[List[Union[str, float]]],
+    subspace_entropies: List[List[Union[str, float]]],
+    subspace_mutual_informations: List[List[Union[str, float]]],
+    factor_information_spearman_correlations: List[List[Union[str, float]]],
+    subspace_factor_mi: List[List[Union[str, float]]],
+) -> None:
+    results = [
+        common_subspace_mi,
+        subspace_entropies,
+        subspace_mutual_informations,
+        factor_information_spearman_correlations,
+        subspace_factor_mi,
+    ]
+    file_names = [
+        "common_subspace_mi.csv",
+        "subspace_entropies.csv",
+        "subspace_mutual_information.csv",
+        "factor_information_spearman_correlations.csv",
+        "subspace_factor_mi.csv",
+    ]
+    columnss = [
+        ["Model 1", "Model 2", "Subspace Size 1", "Subspace Size 2", "Mutual Information"],
+        [
+            "Model",
+            "Model Pair",
+            "Subspace Size",
+            "Subspace Estimation Method",
+            "Entropy",
+        ],
+        [
+            "Model",
+            "Model Pair",
+            "Subspace Size",
+            "Subspace Estimation Method",
+            "Mutual Information",
+        ],
+        [
+            "Model Pair",
+            "Subspace Size",
+            "Subspace Estimation Method",
+            "MI Estimation Method",
+            "Spearman Correlation",
+        ],
+        [
+            "Model",
+            "Model Pair",
+            "Subspace Size",
+            "Subspace Estimation Method",
+            "MI Estimation Method",
+            "Factor",
+            "Mutual Information",
+        ],
+    ]
+    for result, file_name, columns in zip(results, file_names, columnss):
+        pd.DataFrame(
+            result,
+            columns=result,
+        ).to_csv(file_name)
 
 
 def _compute_information_about_factors(
@@ -369,7 +428,6 @@ def _process_latent_representations(
     Z: Dict[str, List[torch.Tensor]],
     Y: Dict[str, torch.Tensor],
     models: List[VAE],
-    experiment_results: Dict[str, float],
     factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
     cfg: MISTConfig,
     rng: dsutils.RandomGenerator,
@@ -380,7 +438,6 @@ def _process_latent_representations(
     Args:
         Z: Dictionary of the full VAE representations split into "train", "val", and "test" splits
         Y: Dictionary of the ground-truth factor values split into "train", "val", and "test" splits
-        experiment_results: The dictionary in which to store the results of the experiment.
         cfg: The configuration object of the experiment.
         rng: The random generator.
     """
@@ -389,6 +446,11 @@ def _process_latent_representations(
     cca_subspaces_done = set([])
 
     print("Training MIST to determine the mutual information between the representations.")
+    common_subspace_mi = []
+    subspace_entropies, subspace_mutual_informations = [], []
+    factor_information_spearman_correlations = []
+    subspace_factor_mi = []
+
     # Loop through all pairs of representations (models) and investigate the relationships between them
     for ii, jj in product(range(len(Z["train"])), range(len(Z["train"]))):
         if ii >= jj:
@@ -410,7 +472,7 @@ def _process_latent_representations(
                 gpus=cfg.gpus,
             )
             print(f"The information between the representations of model {ii} and {jj} is {mi}")
-            experiment_results[f"I(R{ii}, R{jj} | subspace_sizes={(s1, s2)} )"] = mi
+            common_subspace_mi.append([ii, jj, s1, s2, mi])
 
             # Process the two found subspaces
             _process_subspaces(
@@ -424,7 +486,10 @@ def _process_latent_representations(
                 A_2=A_2,
                 subspace_method="mist",
                 factor_information=factor_information,
-                experiment_results=experiment_results,
+                subspace_entropies=subspace_entropies,
+                subspace_mutual_informations=subspace_mutual_informations,
+                factor_information_spearman_correlations=factor_information_spearman_correlations,
+                subspace_factor_mi=subspace_factor_mi,
                 cfg=cfg,
                 rng=rng,
             )
@@ -455,31 +520,29 @@ def _process_latent_representations(
                 A_2=A_2,
                 subspace_method="CCA",
                 factor_information=factor_information,
-                experiment_results=experiment_results,
+                subspace_entropies=subspace_entropies,
+                subspace_mutual_informations=subspace_mutual_informations,
+                factor_information_spearman_correlations=factor_information_spearman_correlations,
+                subspace_factor_mi=subspace_factor_mi,
                 cfg=cfg,
                 rng=rng,
             )
 
             print("\n---------------------------------------------------------------\n\n\n")
 
-
-def _save_results(experiment_results: Dict[str, float]) -> None:
-    """
-    Save the experiment results in a data frame
-    """
-    results_df = pd.DataFrame({"Value": experiment_results})
-    print("The final experiment results:")
-    print(results_df)
-    results_df.to_csv("experiment_results.csv")
+        _save_results(
+            common_subspace_mi,
+            subspace_entropies,
+            subspace_mutual_informations,
+            factor_information_spearman_correlations,
+            subspace_factor_mi,
+        )
 
 
 @hy.main
 def main(cfg: MISTConfig):
 
     assert cfg.dataset in ["celeba", "shapes3d"], "The dataset not supported."
-
-    # This will keep various metrics from the experiment
-    experiment_results = dict()
 
     pl.seed_everything(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
@@ -499,7 +562,7 @@ def main(cfg: MISTConfig):
     ]
 
     # Get the latent representations given by the original VAE
-    Zs = {split: [vae_utils.get_latent_representations(model, S) for model in models] for split, S in X}
+    Zs = {split: [vae_utils.get_latent_representations(model, S) for model in models] for split, S in X.items()}
 
     # Standardise the data
     for ii in range(len(Zs["train"])):
@@ -523,13 +586,10 @@ def main(cfg: MISTConfig):
         Z=Zs,
         Y=Y,
         models=models,
-        experiment_results=experiment_results,
         factor_information=factor_information,
         cfg=cfg,
         rng=rng,
     )
-
-    _save_results(experiment_results)
 
     print("Finished.")
 
