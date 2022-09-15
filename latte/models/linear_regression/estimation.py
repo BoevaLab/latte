@@ -15,7 +15,7 @@ class LinearRegressionResult:
     A_1: In case of also estimating the linear subspace capturing the most information, this holds the
        d-frame defining the estimated subspace of the first distribution
     E_1: In case of also estimating the linear subspace capturing the most information, this holds the
-       d-frame defining the complement of the estimated subspace of the first distribution
+       `n x n` projection matrix defining the complement of the estimated subspace of the first distribution
     """
 
     A_1: torch.Tensor
