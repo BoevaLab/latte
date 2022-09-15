@@ -10,6 +10,14 @@ from latte.dataset import utils as dataset_utils
 
 @dataclasses.dataclass
 class LinearRegressionResult:
+    """
+    A dataclass for holding the result of mutual information estimation using linear regression.
+    A_1: In case of also estimating the linear subspace capturing the most information, this holds the
+       d-frame defining the estimated subspace of the first distribution
+    E_1: In case of also estimating the linear subspace capturing the most information, this holds the
+       d-frame defining the complement of the estimated subspace of the first distribution
+    """
+
     A_1: torch.Tensor
     E_1: torch.Tensor
     mutual_information: float

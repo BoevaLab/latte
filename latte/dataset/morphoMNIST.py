@@ -1,4 +1,4 @@
-""" Script for downloading and loading the `Cars3D` dataset.
+""" Script for downloading and loading the `MorphoMNIST` dataset.
     Some parts based on the morpho-MNIST package (https://github.com/dccastro/Morpho-MNIST). """
 
 import dataclasses

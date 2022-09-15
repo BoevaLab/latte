@@ -25,9 +25,8 @@ class MISTResult:
     """A dataclass for holding the result of mutual information estimation using MINE
 
     Members:
-        loss (float): The estimate of the mutual information as calculated on the test dataset
-        validation_loss (float): The estimate of the mutual information
-                                                as calculated on the validation dataset
+        mutual_information (float): The estimate of the mutual information as calculated on the test dataset
+        loss (float): The value of the loss on the test split
         estimator (mist.MIST): The model trained and used for estimation of the mutual information
         A_1: In case of also estimating the linear subspace capturing the most information, this holds the
            d-frame defining the estimated subspace of the first distribution

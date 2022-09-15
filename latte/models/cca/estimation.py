@@ -10,6 +10,23 @@ from latte.dataset import utils as dataset_utils
 
 @dataclasses.dataclass
 class CCAResult:
+    """A dataclass for holding the result of mutual information estimation using CCA
+
+    Members:
+        mutual_information (float): The estimate of the mutual information in the optimal as calculated on the
+                                    test dataset
+        mutual_information (float): The estimate of the mutual information in the complement of the optimal subspace
+                                    as calculated on the test dataset
+        A_1: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the estimated subspace of the first distribution
+        A_2: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the estimated subspace of the second distributions
+        E_1: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the complement of the estimated subspace of the first distribution
+        E_2: In case of also estimating the linear subspace capturing the most information, this holds the
+           d-frame defining the complement of the estimated subspace of the second distributions
+    """
+
     A_1: torch.Tensor
     A_2: torch.Tensor
     E_1: torch.Tensor
