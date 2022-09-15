@@ -120,7 +120,7 @@ def _compute_factor_information_spearman_correlation(
     subspace_method: str,
     subspace_size: Tuple[int, int],
     factor_information: List[Dict[MIEstimationMethod, Dict[str, float]]],
-    factor_information_spearman_correlations: List[List[Union[str, float]]],
+    factor_information_spearman_correlations: List[List[Union[str, float, Tuple[int, int]]]],
 ) -> None:
     """
     To investigate how well different representation spaces agree, we determine how well the order of the order of
