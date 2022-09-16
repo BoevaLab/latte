@@ -1,4 +1,4 @@
-""" Script for downloading and loading the Cars3D dataset from http://www.scottreed.info/.
+""" Script for downloading and loading the `Cars3D` dataset from http://www.scottreed.info/.
     Some parts based on disentanglement_lib (https://github.com/google-research/disentanglement_lib). """
 
 import dataclasses

@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 # TODO(Pawel): When pytype starts supporting Literal, remove the comment
-from typing import List, Literal, Union, Tuple  # pytype: disable=not-supported-yet
+from typing import List, Literal, Union, Tuple, Any, Dict  # pytype: disable=not-supported-yet
 
 
 # Seed (or generator) we can use to initialize a random number generator
@@ -128,3 +128,43 @@ def split(
         D_split = [(x[permutation][:end_train], x[permutation][end_train:]) for x in D]
 
     return D_split
+
+
+def load_split_data(
+    file_paths_x: Dict[str, str],
+    file_paths_y: Dict[str, str],
+    dataset: str,
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    """
+    Load the data of the specified dataset split into an existing train-validation-test split.
+    Args:
+        file_paths_x: Dictionary of the paths to the train, validation, and test splits of the observational files.
+        file_paths_y: Dictionary of the paths to the train, validation, and test splits of the target files.
+        dataset: The dataset to load.
+                 Currently, "shapes3d" and "celeba" are supported.
+
+    Returns:
+        Two tuples; the first one is the observation data split into the train, validation, and test splits, and the
+        second one is the latent-factor data split into the same splits.
+    """
+    print("Loading the data.")
+
+    X = {s: torch.from_numpy(np.load(file_path)).float() for s, file_path in file_paths_x.items()}
+    Y = {s: torch.from_numpy(np.load(file_path)).float() for s, file_path in file_paths_y.items()}
+
+    if dataset in ["celeba", "shapes3d"]:
+        for s in X:
+            X[s] /= 255
+
+    print("Data loaded.")
+    return X, Y
+
+
+def get_dataset_module(dataset: str) -> Any:
+    from latte.dataset import shapes3d, celeba
+
+    """Returns the module to use for various utilities according to the dataset."""
+    if dataset == "celeba":
+        return celeba
+    elif dataset == "shapes3d":
+        return shapes3d

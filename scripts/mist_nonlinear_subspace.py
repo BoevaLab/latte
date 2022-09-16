@@ -24,7 +24,8 @@ from sklearn.feature_selection import mutual_info_regression
 
 from latte.dataset import synthetic
 from latte.models.mist import estimation
-from latte.utils import evaluation, visualisation
+from latte.evaluation import subspace_evaluation
+from latte.utils.visualisation import datasets as dataset_visualisation
 import latte.hydra_utils as hy
 
 import logging
@@ -116,7 +117,7 @@ def main(cfg: SyntheticDataManifoldConfig):
         logging.info(f"The entropy the factor of variation is {h: .3f}.")
 
     # Find the subspace with the SupervisedMIST model
-    mi_estimation_result = estimation.find_subspace(
+    mi_estimation_result = estimation.fit(
         X=torch.from_numpy(dataset.X),
         Z_max=torch.from_numpy(dataset.Z),
         Z_min=None,
@@ -143,23 +144,23 @@ def main(cfg: SyntheticDataManifoldConfig):
     )
 
     # Extract the estimate of the projection matrix
-    A_hat = mi_estimation_result.A.detach().cpu().numpy()
+    A_hat = mi_estimation_result.A_1.detach().cpu().numpy()
 
     # Evaluate the fit
-    evaluation_result = evaluation.subspace_fit(dataset.A, A_hat)
+    evaluation_result = subspace_evaluation.subspace_fit(dataset.A, A_hat)
     logging.info("--- Quality of the fit. ---")
     print(evaluation_result)
 
     # Plot the fit if the dimensionality is suitable
     if cfg.n in [2, 3]:
         file_name = f"nonlinear_synthetic_dataset_{cfg.n}d_{cfg.subspace_size}d.png"
-        visualisation.synthetic_data(dataset.X, dataset.A, A_hat, file_name=file_name)
+        dataset_visualisation.synthetic_data(dataset.X, dataset.A, A_hat, file_name=file_name)
 
         # If the factor of variation is 1-dimensional, also visualise it by the color of the observable points
         if dataset.Z.shape[-1] == 1:
 
             file_name = f"nonlinear_synthetic_dataset_{cfg.n}d_{cfg.subspace_size}d_factors.png"
-            visualisation.synthetic_data(
+            dataset_visualisation.synthetic_data(
                 dataset.X,
                 dataset.A,
                 A_hat,

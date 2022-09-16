@@ -1,30 +1,20 @@
 """
-Various visualisation helper functions; both for plotting image data, such as homotopies or latent traversals as well as
-for plotting figures of metrics etc.
+Various visualisation helper functions for plotting image data, such as homotopies or latent traversals.
 """
 
-import pathlib
-from typing import Callable, Dict, Optional, List, Any, Union, Tuple
 from itertools import product
+from typing import Callable, Optional, List, Union, Tuple
 
-import geoopt
+import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
+from pythae.models.vae.vae_model import VAE
+from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import Dataset
-from sklearn.neighbors import KNeighborsRegressor
-
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from mpl_toolkits.mplot3d import art3d
-import seaborn as sns
-
-from pythae.models.vae.vae_model import VAE
 
 from latte.dataset.utils import RandomGenerator
-from latte.models.probabilistic_pca import probabilistic_pca
+from latte.models.vae import utils as vae_utils
 
 left, width = -0.25, 0.5
 bottom, height = 0.25, 0.5
@@ -35,7 +25,7 @@ top = bottom + height
 def vae_reconstructions(
     dataset: Union[Dataset, torch.Tensor],
     vae_model: VAE,
-    latent_transformation: Optional[Callable] = None,
+    latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     nrows: int = 1,
     ncols: int = 12,
     device: str = "cuda",
@@ -175,7 +165,7 @@ def _get_axis_values(
 def latent_traversals(
     vae_model: nn.Module,
     starting_x: torch.Tensor,
-    A_hat: Optional[geoopt.ManifoldTensor] = None,
+    A_hat: Optional[torch.Tensor] = None,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     n_axes: int = 1,
     Z: torch.Tensor = None,
@@ -325,7 +315,7 @@ def latent_traversals_2d(
     vae_model: nn.Module,
     starting_x: torch.Tensor,
     axis: Tuple[int, int],
-    A_hat: Optional[geoopt.ManifoldTensor] = None,
+    A_hat: Optional[torch.Tensor] = None,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     Z: torch.Tensor = None,
     n_values: int = 12,
@@ -484,7 +474,7 @@ def latent_traversals_2d(
 def homotopies(
     xs: List[torch.Tensor],
     vae_model: VAE,
-    A: Optional[geoopt.ManifoldTensor] = None,
+    A: Optional[torch.Tensor] = None,
     n_cols: int = 10,
     x_hat_transformation: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     cmap: Optional[str] = "Greys",
@@ -492,7 +482,9 @@ def homotopies(
     device: str = "cuda",
 ) -> None:
     """
-    Produces plots of homotopies (interpolations between pairs of
+    Produces plots of homotopies (interpolations between pairs of images) as defined in Section 6.3 in
+    https://arxiv.org/abs/1511.06349.
+
     Args:
         xs: The starting images.
             The function will interpolate between all the pairs of images in the list.
@@ -591,496 +583,6 @@ def _get_axis_values_2d(
     return values, qs
 
 
-def _get_lines(
-    X: np.ndarray,
-    A: Optional[np.ndarray] = None,
-    mu: Optional[np.ndarray] = None,
-    A_hat: Optional[np.ndarray] = None,
-    mu_hat: Optional[np.ndarray] = None,
-    dim: int = 3,
-) -> List:
-    """
-    Utility function to get the lines denoting the linear basis of a subspace defined by some projection matrix A and
-    its estimate A_hat.
-    """
-
-    # To plot lines of the appropriate length
-    scale = max([np.max(X[:, j]) - np.min(X[:, j]) for j in range(X.shape[-1])]) / 2
-
-    lines = []
-    params = [(M, v, t) for M, v, t in zip([A, A_hat], [mu, mu_hat], ["truth", "hat"]) if M is not None]
-    for ix, (M, v, t) in enumerate(params):
-        for j in range(M.shape[-1]):
-            v = v if v is not None else np.zeros(dim)
-            if dim == 3:
-                lines.append(
-                    art3d.Line3D(
-                        (-scale * M[0, j] + v[0], scale * M[0, j] + v[0]),
-                        (-scale * M[1, j] + v[1], scale * M[1, j] + v[1]),
-                        (-scale * M[2, j] + v[2], scale * M[2, j] + v[2]),
-                        color="tab:green" if t == "truth" else "tab:orange",
-                        lw=3,
-                    )
-                )
-            elif dim == 2:
-                lines.append(
-                    Line2D(
-                        (-scale * M[0, j] + v[0], scale * M[0, j] + v[0]),
-                        (-scale * M[1, j] + v[1], scale * M[1, j] + v[1]),
-                        lw=2,
-                    )
-                )
-
-    return lines
-
-
-def _plot_points(
-    X: np.ndarray,
-    ax: matplotlib.axes.Axes,
-    dim: int,
-    f: Optional[np.ndarray],
-    color: str,
-    alpha: float,
-    legend_elements: List[Any],
-    legend_names: List[str],
-    legend_colors: List[str],
-    element_name: str,
-) -> None:
-    """
-    Utility function for plotting a set of points onto an axes.
-    It also manages the UI elements which are kept track of.
-    """
-
-    if dim == 2:
-        if f is not None:
-            points = ax.scatter(X[:, 0], X[:, 1], s=10, c=f, alpha=alpha)
-        else:
-            points = ax.scatter(X[:, 0], X[:, 1], s=10, color=color, alpha=alpha)
-    else:
-        if f is not None:
-            points = ax.scatter(X[:, 0], X[:, 1], X[:, 2], s=10, c=f, alpha=alpha)
-        else:
-            points = ax.scatter(X[:, 0], X[:, 1], X[:, 2], s=10, color=color, alpha=alpha)
-    legend_elements.append(points)
-    legend_names.append(element_name)
-    legend_colors.append(color)
-
-
-def synthetic_data(
-    X: np.ndarray,
-    A: Optional[np.ndarray] = None,
-    A_hat: Optional[np.ndarray] = None,
-    f: Optional[np.ndarray] = None,
-    alphas: Dict[str, float] = {"observable": 0.1, "true_projections": 0.2, "estimated_projections": 0.3},
-    file_name: Optional[Union[str, pathlib.Path]] = None,
-) -> None:
-    """
-    Visualises 2D or 3D synthetic data with factors of variation from a nonlinear manifold.
-    Mainly used for data generated with the `nonlinear_manifold` function from the `synthetic` module.
-    Optionally, it also visualises the projections of the points onto 2D or 1D linear subspaces; either the ground-truth
-    projections or the projections on some estimated subspace spanned by the matrices `A` and `A_hat`, respectively.
-    Args:
-        X: A `N x n` array holding the observable data
-        A: A `n x d` matrix projecting X onto the true linear subspace.
-        A_hat: An estimate of the `A` matrix.
-        f: An `N` dimensional vector holding the values of a factor of variation to be color-visualised.
-        alphas: The alpha values for plotting the different points in the figure (the observable ones, the true
-                projections, and the estimated projections).
-                It should contain the keys "observable", "true_projections", "estimated_projections", where the latter
-                two are only needed if also plotting the corresponding points.
-                Useful to configure depending on the number of points plotting.
-        file_name: Optional file name to save the produced figure.
-
-    """
-    dim = X.shape[1]
-    assert dim in [2, 3], "The dimensionality of the data should be 2 or 3 for visualisation."
-
-    fig = plt.figure()
-    if dim == 2:
-        ax = fig.add_subplot(111)
-    else:
-        ax = fig.add_subplot(111, projection="3d")
-    # Construct the lines showing the basis defined by the matrices
-    for line in _get_lines(X=X, A=A, A_hat=A_hat, dim=dim):
-        ax.add_line(line)
-
-    # Useful for the legend on the image
-    legend_elements, legend_names, legend_colors = [], [], []
-
-    _plot_points(
-        X,
-        ax,
-        dim,
-        f,
-        "tab:blue",
-        alphas["observable"],
-        legend_elements,
-        legend_names,
-        legend_colors,
-        "Observable points",
-    )
-
-    if A is not None:
-        true_plane = X @ A @ A.T
-        _plot_points(
-            true_plane,
-            ax,
-            dim,
-            f,
-            "tab:green",
-            alphas["true_projections"],
-            legend_elements,
-            legend_names,
-            legend_colors,
-            "True linear subspace",
-        )
-
-    if A_hat is not None:
-        predicted_plane = X @ A_hat @ A_hat.T
-        _plot_points(
-            predicted_plane,
-            ax,
-            dim,
-            f,
-            "tab:orange",
-            alphas["estimated_projections"],
-            legend_elements,
-            legend_names,
-            legend_colors,
-            "Predicted linear subspace",
-        )
-
-    if dim == 2:
-        ax.set(
-            title=f"{dim}D Gaussian with nonlinear factors of variation",
-            xlabel="x",
-            ylabel="y",
-        )
-    else:
-        ax.set(
-            title=f"{dim}D Gaussian with nonlinear factors of variation",
-            xlabel="x",
-            ylabel="y",
-            zlabel="z" if dim == 3 else None,
-        )
-
-    if f is None:
-        ax.legend(legend_elements, legend_names, labelcolor=legend_colors)
-    else:
-        ax.legend(*legend_elements[0].legend_elements())
-
-    if file_name is not None:
-        fig.savefig(file_name)
-        plt.close()
-    else:
-        plt.show()
-
-
-def probabilistic_pca_data(
-    X: np.ndarray,
-    Z: np.ndarray,
-    A: np.ndarray,
-    mu: np.ndarray,
-    A_hat: Optional[np.ndarray] = None,
-    mu_hat: Optional[np.ndarray] = None,
-    sigma_hat: Optional[float] = None,
-    alphas: Dict[str, float] = {"observable": 0.1, "true_projections": 0.2, "estimated_projections": 0.3},
-    title: Optional[str] = None,
-    file_name: Optional[Union[str, pathlib.Path]] = None,
-) -> None:
-    """
-    Plots 3D observable data coming from the probabilistic PCA generative model, and optionally the subspace spanned by
-    the (estimate of) the loading matrix together with its projections.
-    Mainly used for data generated with the `probabilistic_pca` function from the `synthetic` module.
-    Args:
-        X: A `N x n` matrix of the noisy observations
-        Z: A `N x d` matrix of the generative factors
-        A: The ground-truth `d x d` loading matrix
-        mu: The ground-truth mean of the observable distribution.
-        A_hat: Estimate of `A`
-        mu_hat: Estimate of `mu`
-        sigma_hat: Estimate of `sigma`
-        alphas: The alpha values for plotting the different points in the figure (the observable ones, the true
-                projections, and the estimated projections).
-                It should contain the keys "observable", "true_projections", "estimated_projections", where the latter
-                two are only needed if also plotting the corresponding points.
-                Useful to configure depending on the number of points plotting.
-        title: Optional plot title
-        file_name: Optional file name to save the produced figure.
-
-    """
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-
-    legend_elements, legend_names, legend_colors = [], [], []
-
-    # Plot the actual noisy observations `X`
-    noise_observations = ax.scatter(X[:, 0], X[:, 1], X[:, 2], s=10, color="tab:blue", alpha=alphas["observable"])
-    legend_elements.append(noise_observations)
-    legend_names.append("Noisy observations")
-    legend_colors.append("tab:blue")
-
-    true_plane = probabilistic_pca.get_observations(Z, A, mu)
-
-    # Construct the lines showing the basis defined by the matrices
-    for line in _get_lines(X=true_plane, A=A, mu=mu, A_hat=A_hat, mu_hat=mu_hat):
-        ax.add_line(line)
-
-    # Plot the projections onto the true subspace
-    true_point_projections = ax.scatter(
-        true_plane[:, 0], true_plane[:, 1], true_plane[:, 2], s=10, color="tab:green", alpha=alphas["true_projections"]
-    )
-    legend_elements.append(true_point_projections)
-    legend_names.append("Projections on the true linear subspace")
-    legend_colors.append("tab:green")
-
-    if A_hat is not None:
-        # Plot the projections onto the estimated subspace
-        Z_hat = probabilistic_pca.get_latent_representations(X, A_hat, mu_hat, sigma_hat)
-        predicted_plane = probabilistic_pca.get_observations(Z_hat, A_hat, mu_hat)
-
-        predicted_point_projections = ax.scatter(
-            predicted_plane[:, 0],
-            predicted_plane[:, 1],
-            predicted_plane[:, 2],
-            s=10,
-            color="tab:orange",
-            alpha=alphas["estimated_projections"],
-        )
-        legend_elements.append(predicted_point_projections)
-        legend_names.append("Projections on the predicted linear subspace")
-        legend_colors.append("tab:orange")
-
-    ax.set(title="Probabilistic PCA" if title is None else title, xlabel="x", ylabel="y", zlabel="z")
-    ax.legend(legend_elements, legend_names, labelcolor=legend_colors)
-
-    if file_name is not None:
-        fig.savefig(file_name)
-        plt.close()
-    else:
-        plt.show()
-
-
-def metrics_boxplot(
-    data: pd.DataFrame,
-    x: str = "Metric",
-    quantity_name: Optional[str] = None,
-    label_rotation: int = 30,
-    file_name: Optional[Union[str, pathlib.Path]] = None,
-) -> None:
-    """
-    Plots the boxplot of the metrics logged in the `data` dataframe.
-    The dataframe should contain a column "Metric" with the name of the metric and a column "Value" which contains the
-    values of the metrics recorded.
-
-    Args:
-        data (pd.DataFrame): The data frame containing the logged metrics.
-        x: The x-axis value of the boxplot.
-        quantity_name (str): The name of the quantity of interest (if one was varied and the values of metrics were
-                             measured at these different points).
-        label_rotation: The rotation of the metric name labels when plotting.
-        file_name (Optional[Union[str, pathlib.Path]], optional): Optional name of the file to save the plot to.
-                                                                  Defaults to None.
-    """
-    n_metrics = len(set(data["Metric"]))
-    fig, ax = plt.subplots(figsize=(max(1.0, 1.0 * n_metrics), 2), dpi=200)
-
-    b = sns.boxplot(data=data, x=x, y="Value", ax=ax)
-    ax.set(
-        title="Metrics" if n_metrics > 1 else list(data["Metric"])[0],
-        xlabel="Metric" if quantity_name is None else quantity_name,
-        ylabel="Value",
-    )
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=label_rotation)
-    b.tick_params(labelsize=6)
-
-    if file_name is not None:
-        fig.savefig(file_name, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show(bbox_inches="tight")
-
-
-def metric_trend(
-    data: pd.DataFrame,
-    quantity_name: str,
-    title: str = "",
-    file_name: Optional[Union[str, pathlib.Path]] = None,
-) -> None:
-    """
-    Plots the trends in metrics stored in the data frame `data` over different values of a quantity of interest.
-    It assumes that the data frame contains a column names "Metric" with the name of the metrics of interest,
-    a column names "Value" with the measurement of that metric, and a column named "x" which contains the value of
-    the quantity at which the value of the metric was measured.
-
-     Args:
-         data (pd.DataFrame): The data frame containing the data as described above.
-         quantity_name (str): The name of the quantity of interest (which was varied and the values of metrics were
-                              measured at these different points).
-         title (str): The title of the figure
-         file_name (Optional[Union[str, pathlib.Path]], optional): Optional name of the file to save the plot to.
-                                                                   Defaults to None.
-    """
-    fig, ax = plt.subplots(figsize=(4, 2), dpi=200)
-
-    sns.lineplot(data=data, x="x", y="Value", hue="Metric", legend="full", ci="sd", ax=ax)
-    ax.set(xlabel=quantity_name)
-    fig.suptitle(title, fontsize=11)
-    ax.get_legend().remove()
-    # legend = ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
-
-    if file_name is not None:
-        fig.savefig(file_name, bbox_inches="tight")
-        # fig.savefig(file_name, bbox_extra_artists=(legend,), bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-
-
-def factor_trend(
-    Z: torch.Tensor,
-    Y: torch.Tensor,
-    target: str,
-    k: int = 5,
-    N: int = 4000,
-    q: float = 0.05,
-    file_name: Optional[str] = None,
-    rng: RandomGenerator = 42,
-) -> None:
-    """
-    Plots the relationship between values of the 1-dimensional variable `Z` (e.g., a learned latent dimension)
-    and the variable `Y`.
-    It samples `N` points uniformly from the support of `Y` (or a subinterval), and interpolates the values of `Z`
-    using `k`-nearest neighbours.
-
-    The function can be used to plot the relationship between a ground-truth factor of variation and a learned
-    dimension or the other way around.
-    Args:
-        Z: A 1-dimensional array containing the values of the learned dimension for a sample of data points.
-        Y: A 1-dimensional array containing the ground-truth factors of variation for the same data points.
-        target: The meaning of the target.
-                If "ground-truth", the y-axis corresponds to the values of the grond-truth factor, if "learned", it
-                corresponds to the values of a learned dimension.
-        k: Number of nearest neighbours to use for interpolation of the values.
-        N: Number of data points to plot.
-        q: The quantile at which to cut off the values of `Y`.
-        file_name: An optional file name.
-                   If specified, the figure will be saved there, otherwise, it will be displayed.
-        rng: A rando generator for the uniform sampling.
-
-    """
-    assert target in ["ground-truth", "learned"]
-
-    rng = np.random.default_rng(rng)
-
-    if target == "learned":
-        # Plot Z against Y
-        X = Y
-        T = Z
-    else:
-        # Plot Y against Z
-        X = Z
-        T = Y
-
-    regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T)
-
-    # Generate a uniform sample from the range of `X`
-    x = np.sort(rng.uniform(low=-1, high=1, size=(N,)) * np.asarray([torch.quantile(X, 1 - q) - torch.quantile(X, q)]))
-    # Compute the values of the variable in `T` for the sampled points based on kNN
-    t = regressor.predict(x.reshape(-1, 1))
-
-    fig, ax = plt.subplots(figsize=(3.25, 3.25), dpi=200)
-    ax.plot(x, t, label="Latent dimension")
-
-    if target == "learned":
-        xlabel, ylabel = "Learned Dimension", "Factor"
-    else:
-        xlabel, ylabel = "Factor", "Learned Dimension"
-    ax.set(xlabel=xlabel, ylabel=ylabel)
-
-    fig.tight_layout()
-
-    if file_name is not None:
-        fig.savefig(file_name, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-
-
-def factor_heatmap(
-    Z: torch.Tensor,
-    Y: torch.Tensor,
-    target: str,
-    k: int = 5,
-    N: int = 4000,
-    q: float = 0.05,
-    file_name: Optional[str] = None,
-    rng: RandomGenerator = 42,
-) -> None:
-    """
-    Plots a "jet" heatmap of the values of a 1-dimensional latent variable against a two-dimensional random vector.
-    It samples `N` points uniformly from the square containing the two-dimensional vector, and interpolates the values
-    of the other variable using `k`-nearest neighbours.
-
-    The function can be used to plot the relationship between a ground-truth factor of variation and a two learned
-    dimensions or the other way around.
-    Args:
-        Z: A 1-dimensional array containing the values of the learned dimension for a sample of data points.
-        Y: A 2-dimensional array containing the ground-truth factors of variation for the same data points.
-        target: The meaning of the target.
-                If "ground-truth", the hue corresponds to the values of the grond-truth factor, if "learned", it
-                corresponds to the values of a learned dimension.
-        k: Number of nearest neighbours to use for interpolation of the values.
-        N: Number of data points to plot.
-        q: The quantile at which to cut off the values of `Y`.
-        file_name: An optional file name.
-                   If specified, the figure will be saved there, otherwise, it will be displayed.
-        rng: A rando generator for the uniform sampling.
-
-    """
-    assert target in ["ground-truth", "learned"]
-
-    if target == "learned":
-        # Plot Z against Y
-        assert Y.shape[1] == 2
-        X = Y
-        T = Z
-    else:
-        # Plot Y against Z
-        assert Z.shape[1] == 2
-        X = Z
-        T = Y
-
-    rng = np.random.default_rng(rng)
-
-    regressor = KNeighborsRegressor(n_neighbors=k).fit(X, T)
-
-    # Generate a uniform sample from the range of `X`
-    x = rng.uniform(low=-1, high=1, size=(N, 2)) * np.asarray(
-        [
-            torch.quantile(X[:, 0], 1 - q) - torch.quantile(X[:, 0], q),
-            torch.quantile(X[:, 1], 1 - q) - torch.quantile(X[:, 1], q),
-        ]
-    )
-
-    # Compute the values of the variable in `T` for the sampled points based on kNN
-    t = regressor.predict(x)
-
-    fig, ax = plt.subplots(figsize=(3.25, 3.25), dpi=200)
-    ax.scatter(x[:, 0], x[:, 1], c=t, cmap="jet", s=10, label=t)
-
-    axis_name = "Learned Dimension" if target == "learned" else "Factor"
-    ax.set(xlabel=f"{axis_name} 1", ylabel=f"{axis_name} 2")
-
-    fig.tight_layout()
-
-    if file_name is not None:
-        fig.savefig(file_name, bbox_inches="tight")
-        plt.close()
-    else:
-        plt.show()
-
-
 def generated_images(
     images: torch.Tensor, nrows: int, ncols: int, file_name: Optional[str] = None, cmap: Optional[str] = None
 ):
@@ -1110,3 +612,104 @@ def generated_images(
         plt.close()
     else:
         plt.show()
+
+
+def graphically_evaluate_model(
+    model: VAE,
+    X: torch.Tensor,
+    A: Optional[torch.Tensor] = None,
+    starting_x: Optional[torch.Tensor] = None,
+    starting_xs: Optional[List[torch.Tensor]] = None,
+    latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    repeats: int = 1,
+    homotopy_n: int = 3,
+    n_rows: int = 4,
+    n_cols: int = 6,
+    rng: RandomGenerator = 1,
+    device: str = "cuda",
+    file_prefix: Optional[str] = None,
+) -> None:
+    """
+    A convenience function to produce plots qualitatively evaluating a VAE model for images.
+    It produces the VAE reconstructions of a subset of the passed dataset, the latent traversals of a subset of chosen
+    starting images, homotopies of a subset of the dataset, and the 2D traversals in case the (projected) subspace is
+    two-dimensional.
+    Optionally, the VAE model representations can be projected with the passed `A` projection matrix and the
+    produced plots can be repeated `repeats` times.
+
+    Args:
+        model: The VAE model to evaluate.
+        X: A dataset of original images.
+        A: An optional `d x K` projection matrix to project the VAE space to a linear subspace capturing the information
+           to be kept in the reconstructions.
+           `k` is the dimensionality of the subspace.
+        starting_x: An optional starting image for latent traversals.
+        starting_xs: An optional set of starting images for homotopies.
+        latent_transformation: An optional transformation of the latent traversals before
+                               being reconstructed by `model`.
+        repeats: Number of figures of each type to generate.
+        homotopy_n: If starting_xs is not provided, the number of images to generate for homotopies.
+        n_rows: Number of rows of samples to plot for VAE reconstructions and the latent traversals.
+        n_cols: Number of columns of samples to plot for VAE reconstructions, the latent traversals, and homotopies.
+        rng: The random number generator.
+        device: The pytorch device to use.
+        file_prefix: The prefix of the filenames used to save all the figures.
+                     Different suffixes will be added to the individual files of the reconstructions, traversals,
+                     and homotopies.
+
+    """
+
+    rng = np.random.default_rng(rng)
+
+    # Get the (projected) latent representations
+    Z = vae_utils.get_latent_representations(model, X)
+    Z = torch.from_numpy(StandardScaler().fit_transform(Z.numpy())).float()
+    if A is not None:
+        Z = Z @ A.detach().cpu()
+        Z = torch.from_numpy(StandardScaler().fit_transform(Z.numpy())).float()
+
+    for ii in range(repeats):
+        vae_reconstructions(
+            dataset=X,
+            vae_model=model,
+            nrows=n_rows,
+            ncols=n_cols,
+            latent_transformation=latent_transformation,
+            cmap=None,
+            rng=rng,
+            file_name=file_prefix + f"_reconstructions_{ii}.png" if file_prefix is not None else None,
+        )
+
+        latent_traversals(
+            vae_model=model,
+            starting_x=starting_x if starting_x is not None else X[rng.choice(len(X))].to(device),
+            Z=Z,
+            A_hat=A,
+            n_values=n_cols,
+            n_axes=n_rows,
+            cmap=None,
+            file_name=file_prefix + f"_traversals_{ii}.png" if file_prefix is not None else None,
+        )
+
+        homotopies(
+            vae_model=model,
+            A=A,
+            xs=starting_xs
+            if starting_xs is not None
+            else [X[rng.choice(len(X))].to(device) for _ in range(homotopy_n)],
+            n_cols=n_cols,
+            file_name=file_prefix + f"_homotopies_{ii}.png" if file_prefix is not None else None,
+        )
+
+        if A is None and Z.shape[1] == 2 or A is not None and A.shape[1] == 2:
+            latent_traversals_2d(
+                vae_model=model,
+                starting_x=X[rng.choice(len(X))].to(device),
+                axis=(0, 1),
+                A_hat=A,
+                Z=Z,
+                n_values=n_cols,
+                device=device,
+                cmap=None,
+                file_name=file_prefix + f"_homotopies_{ii}.png",
+            )

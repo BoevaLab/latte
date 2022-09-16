@@ -20,7 +20,7 @@ from tqdm import tqdm, trange
 
 import latte.hydra_utils as hy
 from latte.dataset import utils as dsutils
-from latte.utils import visualisation
+from latte.utils.visualisation import datasets as dataset_visualisation, metrics as metrics_visualisation
 from latte.models.probabilistic_pca import probabilistic_pca, orientation, evaluation as ppca_evaluation
 
 import logging
@@ -185,7 +185,7 @@ def fit(
 
         # If you only need a figure, you should run the script with n_runs=1
         # and only a small number of possible settings of parameters
-        visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval[:, dataset.measured_factors],
             A=dataset.A[:, dataset.measured_factors],
@@ -195,7 +195,7 @@ def fit(
             f"_s{noise_std:.3f}_o{len(X_orient)}_mo_{manifold_optimisation}.png",
             title="Observable data and the true subspace",
         )
-        visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval[:, dataset.measured_factors],
             A=dataset.A[:, dataset.measured_factors],
@@ -283,7 +283,7 @@ def fit(
     )
 
     if n == 3 and d == 2:
-        visualisation.probabilistic_pca_data(
+        dataset_visualisation.ppca_data(
             X=X_eval,
             Z=Z_eval,
             A=dataset.A[:, dataset.measured_factors],
@@ -400,7 +400,7 @@ def main(cfg: Experiment1Config):
 
         # Plot standard deviations
         for metric in results_df["Metric"]:
-            visualisation.metrics_boxplot(
+            metrics_visualisation.metrics_boxplot(
                 results_df[results_df["Metric"] == metric],
                 x="x" if quantity_name == "manifold_optimisation" else "Metric",
                 quantity_name="Manifold optimisation" if quantity_name == "manifold_optimisation" else None,
@@ -418,18 +418,18 @@ def main(cfg: Experiment1Config):
             )
         ]
         if all([len(a) == 1 for a in arrays]):
-            visualisation.metrics_boxplot(
+            metrics_visualisation.metrics_boxplot(
                 plot_df,
                 label_rotation=80,
                 file_name=filepath / "metrics_histogram.png",
             )
         else:
-            visualisation.metrics_boxplot(
+            metrics_visualisation.metrics_boxplot(
                 plot_df[plot_df["x"] == 0],
                 label_rotation=80,
                 file_name=filepath / "metrics_histogram_moFalse.png",
             )
-            visualisation.metrics_boxplot(
+            metrics_visualisation.metrics_boxplot(
                 plot_df[plot_df["x"] == 1],
                 label_rotation=80,
                 file_name=filepath / "metrics_histogram_moTrue.png",
@@ -437,7 +437,7 @@ def main(cfg: Experiment1Config):
     else:
         # Plot trends
         for metrics in metrics_to_plot:
-            visualisation.metric_trend(
+            metrics_visualisation.metric_trend(
                 results_df[results_df["Metric"].isin(metrics)],
                 quantity_x_labels[quantity_name],
                 title=metric_titles[metrics],

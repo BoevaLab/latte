@@ -19,8 +19,8 @@ class ManifoldProjectionLayer(nn.Module):
             d: Dimension of the linear subspace (the one we want to project *onto*).
             init: An optional initial setting of the manifold parameter
             stiefel_manifold: Whether the projection layer should be on the Stiefel manifold.
-                              This should be left True for almost all use cases, it is mostly here to enable
-                              investigating the effect of the constrained optimisation versus the unconstrained one.
+                              This should be left True for almost all use cases, except for unconstrained optimisation
+                              or investigating the effect of the constrained optimisation versus the unconstrained one.
         """
         super().__init__()
         if init is None:
