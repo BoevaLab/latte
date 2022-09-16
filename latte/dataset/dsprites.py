@@ -52,6 +52,10 @@ fixed_values = {
 }
 
 
+attribute_names = ["shape", "scale", "orientation", "position_x", "position_y"]
+attribute2idx = {name: jj for jj, name in enumerate(attribute_names)}
+
+
 @dataclasses.dataclass
 class DSpritesMetadata:
     """

@@ -620,6 +620,7 @@ def graphically_evaluate_model(
     A: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
     starting_xs: Optional[List[torch.Tensor]] = None,
+    cmap: Optional[str] = None,
     latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     repeats: int = 1,
     homotopy_n: int = 3,
@@ -645,6 +646,7 @@ def graphically_evaluate_model(
            `k` is the dimensionality of the subspace.
         starting_x: An optional starting image for latent traversals.
         starting_xs: An optional set of starting images for homotopies.
+        cmap: The colormap to use for plotting.
         latent_transformation: An optional transformation of the latent traversals before
                                being reconstructed by `model`.
         repeats: Number of figures of each type to generate.
@@ -675,7 +677,7 @@ def graphically_evaluate_model(
             nrows=n_rows,
             ncols=n_cols,
             latent_transformation=latent_transformation,
-            cmap=None,
+            cmap=cmap,
             rng=rng,
             file_name=file_prefix + f"_reconstructions_{ii}.png" if file_prefix is not None else None,
         )
@@ -687,7 +689,7 @@ def graphically_evaluate_model(
             A_hat=A,
             n_values=n_cols,
             n_axes=n_rows,
-            cmap=None,
+            cmap=cmap,
             file_name=file_prefix + f"_traversals_{ii}.png" if file_prefix is not None else None,
         )
 
@@ -698,6 +700,7 @@ def graphically_evaluate_model(
             if starting_xs is not None
             else [X[rng.choice(len(X))].to(device) for _ in range(homotopy_n)],
             n_cols=n_cols,
+            cmap=cmap,
             file_name=file_prefix + f"_homotopies_{ii}.png" if file_prefix is not None else None,
         )
 
@@ -710,6 +713,6 @@ def graphically_evaluate_model(
                 Z=Z,
                 n_values=n_cols,
                 device=device,
-                cmap=None,
+                cmap=cmap,
                 file_name=file_prefix + f"_homotopies_{ii}.png",
             )

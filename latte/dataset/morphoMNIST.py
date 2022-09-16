@@ -40,6 +40,10 @@ MD5_CHECKSUM = {
 }
 
 
+attribute_names = ["digit", "area", "length", "thickness", "slant", "width", "height", "perturbation"]
+attribute2idx = {name: jj for jj, name in enumerate(attribute_names)}
+
+
 @dataclasses.dataclass
 class MorphoMNISTDataset:
     """Stores the MorphoMNIST data from https://github.com/dccastro/Morpho-MNIST.

@@ -1,7 +1,8 @@
 """
 Simple implementations of baseline CCN image VAE components compatible with `pythae`.
 Based on the similar implementations from https://arxiv.org/pdf/1802.05983.pdf.
-These architectures work on the 3-layer 64x64 images from e.g. resized `CelebA` or `Shapes3D` datasets.
+These architectures work on the 64x64 images from e.g. resized `CelebA`, `Shapes3D`, or `dSprites` datasets and for
+the 28x28 `MorphoMNIST` dataset.
 """
 
 from torch import nn
@@ -17,13 +18,13 @@ from latte.modules.layers import View
 class ConvEncoder(BaseEncoder):
     """A base architecture of an encoder."""
 
-    def __init__(self, model_config: BaseTrainerConfig) -> None:
+    def __init__(self, model_config: BaseTrainerConfig, n_channels: int = 3) -> None:
         BaseEncoder.__init__(self)
 
         self.model_config = model_config
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, 4, 2, 1),  # B, 32, 32, 32
+            nn.Conv2d(n_channels, 32, 4, 2, 1),  # B, 32, 32, 32
             nn.ReLU(),
             nn.Conv2d(32, 32, 4, 2, 1),  # B, 32, 16, 16
             nn.ReLU(),
@@ -53,7 +54,7 @@ class ConvEncoder(BaseEncoder):
 class ConvDecoder(BaseDecoder):
     """A base architecture of a decoder."""
 
-    def __init__(self, model_config: BaseTrainerConfig) -> None:
+    def __init__(self, model_config: BaseTrainerConfig, n_channels: int = 3) -> None:
         BaseDecoder.__init__(self)
 
         self.decoder = nn.Sequential(
@@ -68,7 +69,69 @@ class ConvDecoder(BaseDecoder):
             nn.ReLU(),
             nn.ConvTranspose2d(32, 32, 4, 2, 1),  # B, 32, 32, 32
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 3, 4, 2, 1),  # B, 3, 64, 64
+            nn.ConvTranspose2d(32, n_channels, 4, 2, 1),  # B, 3, 64, 64
+            nn.Sigmoid(),
+        )
+
+    def forward(self, z: torch.Tensor):
+
+        x_hat = self.decoder(z)
+        output = ModelOutput(reconstruction=x_hat)
+
+        return output
+
+
+class ConvEncoderMNIST(BaseEncoder):
+    """A base architecture of an encoder for the MNIST dataset."""
+
+    def __init__(self, model_config: BaseTrainerConfig) -> None:
+        BaseEncoder.__init__(self)
+
+        self.model_config = model_config
+
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 32, 4, 2, 1),  # B, 32, 16, 16
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, 2, 1),  # B, 64, 8, 8
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 4, 2, 1),  # B, 4, 4, 4
+            nn.ReLU(),
+            View((-1, 64 * 4 * 4)),  # B, 64 * 4 * 4
+            nn.Linear(64 * 4 * 4, 256),  # B, 256
+            nn.ReLU(),
+            nn.Linear(256, self.model_config.latent_dim * 2),  # B, model_config.latent_dim * 2
+        )
+
+    def forward(self, x: torch.Tensor) -> ModelOutput:
+
+        y = self.encoder(x)
+
+        # The same network produces both the mean and the variance parameters
+        mu = y[:, : self.model_config.latent_dim]
+        log_var = y[:, self.model_config.latent_dim :]
+
+        output = ModelOutput(embedding=mu, log_covariance=log_var)
+
+        return output
+
+
+class ConvDecoderMNIST(BaseDecoder):
+    """A base architecture of a decoder for the MNIST dataset."""
+
+    def __init__(self, model_config: BaseTrainerConfig) -> None:
+        BaseDecoder.__init__(self)
+
+        self.decoder = nn.Sequential(
+            nn.Linear(model_config.latent_dim, 256),  # B, 256
+            nn.ReLU(),
+            nn.Linear(256, 64 * 4 * 4),  # B, 64 * 4 * 4
+            nn.ReLU(),
+            View((-1, 64, 4, 4)),  # B, 64,  4,  4
+            nn.ConvTranspose2d(64, 64, 4, 2, 1),  # B, 64, 8, 8
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),  # B, 32, 16, 16
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 1, 4, 2, 1),  # B, 32, 32, 32
             nn.Sigmoid(),
         )
 
