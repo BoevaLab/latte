@@ -12,7 +12,7 @@ from latte.modules import callbacks as cbs
 from latte.modules.data.datamodules import GenericDataModule
 
 
-# @pytest.mark.skip("Too long to run")
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize("n", [6, 8, 10])
 @pytest.mark.parametrize("d", [2, 3])
 def test_loss_decrease(n: int, d: int):
@@ -75,7 +75,7 @@ def test_loss_decrease(n: int, d: int):
     assert r[-1] or r[1]
 
 
-# @pytest.mark.skip("Too long to run")
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize("n", [6, 8, 10])
 @pytest.mark.parametrize("d", [2, 3])
 def test_orientation(n: int, d: int) -> None:

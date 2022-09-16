@@ -86,7 +86,7 @@ def function_test(
 
 
 # DONE
-# @pytest.mark.skip("Too long to run")
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "transform",
     transforms,
@@ -105,7 +105,7 @@ def test_univariate(transform: Callable[[np.ndarray], np.ndarray], n_samples: in
 
 
 # DONE
-# @pytest.mark.skip("Too long to run")
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "n_samples",
     [20000],

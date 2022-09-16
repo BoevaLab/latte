@@ -47,6 +47,7 @@ def test_projection_matrix_changes(N: int, n: int, d: int):
             )  # since the layer weight are stored as numpy arrays, use numpy linalg
 
 
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "N",
     [8000],
@@ -95,6 +96,7 @@ transforms = [
 ]
 
 
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "N",
     [8000],
@@ -140,6 +142,7 @@ def test_nonlinear_data(N: int, n: int, d: int, transform: List[Callable[[np.nda
     assert evaluation_result["Value"]["Difference between subspaces"] < np.quantile(random_matrices_results, 0.05)
 
 
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "N",
     [32000],
@@ -171,6 +174,7 @@ def test_probabilistic_pca_data_mi_estimation_full_space(N: int, n: int, d: int)
     assert estimation_result.mutual_information == pytest.approx(true_mi, 0.1)
 
 
+@pytest.mark.skip("Too long to run")
 @pytest.mark.parametrize(
     "N",
     [32000],
