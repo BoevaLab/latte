@@ -26,7 +26,7 @@ def _preprocess_morphomnist_data(data: morphoMNIST.MorphoMNISTDataset) -> Tuple[
     Y_perturbations = (
         np.hstack((data.train_perturbations, data.test_perturbations)) if data.train_perturbations is not None else None
     )
-    Y_latents_values = np.vstack((data.train_latents_values, data.test_latents_values))
+    Y_latents_values = np.vstack((data.train_latents_values, data.test_latents_values))[:, 1:]  # remove `index`
     if Y_perturbations is not None:
         Y = np.hstack((Y_labels.reshape(-1, 1), Y_latents_values, Y_perturbations.reshape(-1, 1)))
     else:

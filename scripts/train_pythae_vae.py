@@ -121,7 +121,9 @@ def get_dataset(dataset: str, paths: Tuple[str, str, str]) -> Tuple[torch.Tensor
         X_train, X_val, X_test = (resize(x) for x in [X_train, X_val, X_test])
 
     if dataset in ["celeba", "shapes3d", "morphomnist"]:
-        X_train, X_val, X_test = (x.type(torch.FloatTensor) / 255 for x in [X_train, X_val, X_test])
+        X_train, X_val, X_test = (x.float() / 255 for x in [X_train, X_val, X_test])
+    elif dataset in ["dsprites"]:
+        X_train, X_val, X_test = (x.float() for x in [X_train, X_val, X_test])
 
     print("Dataset loaded.")
     return X_train, X_val, X_test
@@ -282,6 +284,7 @@ def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
         return DisentangledBetaVAEConfig(
             latent_dim=cfg.latent_size,
             reconstruction_loss=cfg.loss,
+            beta=cfg.beta,
             C=cfg.C,
             warmup_epoch=cfg.warmup_epoch,
         )

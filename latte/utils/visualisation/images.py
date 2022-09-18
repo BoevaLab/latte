@@ -621,7 +621,6 @@ def graphically_evaluate_model(
     starting_x: Optional[torch.Tensor] = None,
     starting_xs: Optional[List[torch.Tensor]] = None,
     cmap: Optional[str] = None,
-    latent_transformation: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     repeats: int = 1,
     homotopy_n: int = 3,
     n_rows: int = 4,
@@ -647,8 +646,6 @@ def graphically_evaluate_model(
         starting_x: An optional starting image for latent traversals.
         starting_xs: An optional set of starting images for homotopies.
         cmap: The colormap to use for plotting.
-        latent_transformation: An optional transformation of the latent traversals before
-                               being reconstructed by `model`.
         repeats: Number of figures of each type to generate.
         homotopy_n: If starting_xs is not provided, the number of images to generate for homotopies.
         n_rows: Number of rows of samples to plot for VAE reconstructions and the latent traversals.
@@ -676,7 +673,7 @@ def graphically_evaluate_model(
             vae_model=model,
             nrows=n_rows,
             ncols=n_cols,
-            latent_transformation=latent_transformation,
+            latent_transformation=None if A is None else lambda t: t @ A @ A.T,
             cmap=cmap,
             rng=rng,
             file_name=file_prefix + f"_reconstructions_{ii}.png" if file_prefix is not None else None,
@@ -688,7 +685,7 @@ def graphically_evaluate_model(
             Z=Z,
             A_hat=A,
             n_values=n_cols,
-            n_axes=n_rows,
+            n_axes=n_rows if A is None else min(n_rows, A.shape[1]),
             cmap=cmap,
             file_name=file_prefix + f"_traversals_{ii}.png" if file_prefix is not None else None,
         )
@@ -714,5 +711,5 @@ def graphically_evaluate_model(
                 n_values=n_cols,
                 device=device,
                 cmap=cmap,
-                file_name=file_prefix + f"_homotopies_{ii}.png",
+                file_name=file_prefix + f"_homotopies_{ii}.png" if file_prefix is not None else None,
             )
