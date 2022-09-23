@@ -161,10 +161,16 @@ def load_split_data(
 
 
 def get_dataset_module(dataset: str) -> Any:
-    from latte.dataset import shapes3d, celeba
+    from latte.dataset import shapes3d, celeba, dsprites, morphoMNIST
 
     """Returns the module to use for various utilities according to the dataset."""
     if dataset == "celeba":
         return celeba
     elif dataset == "shapes3d":
         return shapes3d
+    elif dataset == "dsprites":
+        return dsprites
+    elif dataset == "morphoMNIST":
+        return morphoMNIST
+    else:
+        raise NotImplementedError

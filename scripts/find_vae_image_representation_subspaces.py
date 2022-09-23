@@ -288,13 +288,12 @@ def _process_subspace(
     )
 
     # Evaluate the subspace graphically
-    for lt, M, model_type in zip([None, lambda t: t @ A @ A.T], [A, None], ["subspace", "projected"]):
+    for M, model_type in zip([A, None], ["subspace", "projected"]):
         image_visualisation.graphically_evaluate_model(
             model,
             X,
             A=M,
             homotopy_n=cfg.plot_n_images,
-            latent_transformation=lt,
             n_rows=min(projection_subspace_size, cfg.plot_nrows),
             n_cols=cfg.plot_ncols,
             repeats=cfg.plot_nrows,

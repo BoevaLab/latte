@@ -19,6 +19,7 @@ import os
 import torch
 import numpy as np
 import pandas as pd
+from torchvision import transforms
 
 from tqdm import trange
 
@@ -115,10 +116,14 @@ def get_dataset(dataset: str, paths: Tuple[str, str, str]) -> Tuple[torch.Tensor
     X_val = torch.from_numpy(np.load(paths[0]))
     X_test = torch.from_numpy(np.load(paths[1]))
 
-    if dataset in ["celeba", "shapes3d"]:
-        X_train = X_train.type(torch.FloatTensor) / 255
-        X_val = X_val.type(torch.FloatTensor) / 255
-        X_test = X_test.type(torch.FloatTensor) / 255
+    if dataset in ["morphomnist"]:
+        resize = transforms.Resize((32, 32))
+        X_train, X_val, X_test = (resize(x) for x in [X_train, X_val, X_test])
+
+    if dataset in ["celeba", "shapes3d", "morphomnist"]:
+        X_train, X_val, X_test = (x.float() / 255 for x in [X_train, X_val, X_test])
+    elif dataset in ["dsprites"]:
+        X_train, X_val, X_test = (x.float() for x in [X_train, X_val, X_test])
 
     print("Dataset loaded.")
     return X_train, X_val, X_test
@@ -136,7 +141,7 @@ def _get_model_classes(dataset: str, network_type: Optional[str] = None) -> Tupl
         The encoder and decoder class.
     """
     if dataset == "dsprites":
-        return None, None  # Not implemented yet
+        return lambda c: conv_models.ConvEncoder(c, n_channels=1), lambda c: conv_models.ConvDecoder(c, n_channels=1)
     elif dataset in ["shapes3d", "celeba"]:
         assert network_type in ["conv", "resnet"]
         if network_type == "conv":
@@ -145,6 +150,8 @@ def _get_model_classes(dataset: str, network_type: Optional[str] = None) -> Tupl
             return Encoder_ResNet_VAE_CELEBA, Decoder_ResNet_AE_CELEBA
         else:
             return Encoder_Conv_VAE_CELEBA, Decoder_Conv_AE_CELEBA
+    elif dataset == "morphomnist":
+        return conv_models.ConvEncoderMNIST, conv_models.ConvDecoderMNIST
     else:  # Not implemented yet
         return None, None
 
@@ -277,6 +284,7 @@ def _get_model_config(cfg: VAETrainConfig) -> BaseAEConfig:  # noqa: C901
         return DisentangledBetaVAEConfig(
             latent_dim=cfg.latent_size,
             reconstruction_loss=cfg.loss,
+            beta=cfg.beta,
             C=cfg.C,
             warmup_epoch=cfg.warmup_epoch,
         )
@@ -315,7 +323,7 @@ def _save_representations(
     trained_model: VAE, X_train: torch.Tensor, X_val: torch.Tensor, X_test: torch.Tensor, cfg: VAETrainConfig
 ) -> None:
     base_fname = (
-        f"{cfg.dataset}_{cfg.vae_flavour}_b{cfg.beta}"
+        f"{cfg.dataset}_{cfg.vae_flavour}_b{cfg.beta}_C{cfg.C}"
         f"_dim{cfg.latent_size}_l{cfg.loss}_m{cfg.network_type}_s{cfg.seed}"
     )
     for X, split in zip([X_train, X_val, X_test], ["train", "val", "test"]):
@@ -324,7 +332,7 @@ def _save_representations(
 
 @hy.main
 def main(cfg: VAETrainConfig):
-    assert cfg.dataset in ["dsprites", "celeba", "shapes3d"], f"Dataset {cfg.dataset} is not supported."
+    assert cfg.dataset in ["dsprites", "celeba", "shapes3d", "morphomnist"], f"Dataset {cfg.dataset} is not supported."
     assert cfg.dataset_paths is not None
 
     device = "cpu" if cfg.no_cuda else "cuda"
