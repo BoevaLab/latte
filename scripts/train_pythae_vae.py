@@ -323,7 +323,7 @@ def _save_representations(
     trained_model: VAE, X_train: torch.Tensor, X_val: torch.Tensor, X_test: torch.Tensor, cfg: VAETrainConfig
 ) -> None:
     base_fname = (
-        f"{cfg.dataset}_{cfg.vae_flavour}_b{cfg.beta}"
+        f"{cfg.dataset}_{cfg.vae_flavour}_b{cfg.beta}_C{cfg.C}"
         f"_dim{cfg.latent_size}_l{cfg.loss}_m{cfg.network_type}_s{cfg.seed}"
     )
     for X, split in zip([X_train, X_val, X_test], ["train", "val", "test"]):
