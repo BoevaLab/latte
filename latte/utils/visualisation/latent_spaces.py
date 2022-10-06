@@ -6,7 +6,7 @@ from typing import Optional, List
 
 import numpy as np
 import torch
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
 
 import matplotlib.pyplot as plt
 
@@ -17,8 +17,10 @@ def factor_trend(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
+    discrete_factors: Optional[List[int]] = None,
     interpolate: bool = True,
-    k: int = 5,
+    k_continuous: int = 5,
+    k_discrete: int = 5,
     N: int = 4000,
     q: float = 0.05,
     attribute_names: Optional[List[str]] = None,
@@ -42,10 +44,13 @@ def factor_trend(
                 If "learned", it corresponds to the values of a learned dimension.
                 In that case, Y.shape[1] must be 1 and Z.shape[1] figures will be produces, one heatmap for each
                 of the columns of `Z`.
+        discrete_factors: List of indices of discrete factors.
+                          If None, it is assumed all factors are continuous.
         interpolate: Whether to plot the heatmaps as the values of *sampled* points (interpolate = True) based on a
                      kNN model learned on the true values or just plot the distribution and the heatmap of the original
                      `M` points provided.
-        k: Number of nearest neighbours to use for interpolation of the values.
+        k_continuous: Number of nearest neighbours to use for interpolation of the values if the targets are continuous.
+        k_discrete: Number of nearest neighbours to use for interpolation of the values if the targets are discrete.
         N: Number of data points to plot.
         q: The quantile at which to cut off the values of `Y`.
         attribute_names: A list of length Z.shape[1] (target = "ground-truth") or Y.shape[1] (target = "learned") to
@@ -84,15 +89,21 @@ def factor_trend(
         X_jj, T_jj = (X, T[:, jj]) if target == "ground-truth" else (X[:, [jj]], T)
 
         if interpolate:
-            regressor = KNeighborsRegressor(n_neighbors=k).fit(X_jj, T_jj)
 
             # Generate a uniform sample from the range of `X`
             x = np.sort(
                 rng.uniform(low=-1, high=1, size=(N,))
                 * np.asarray([torch.quantile(X_jj, 1 - q) - torch.quantile(X_jj, q)])
             )
+
+            model = (
+                KNeighborsClassifier(n_neighbors=k_discrete).fit(X_jj, T_jj)
+                if jj in discrete_factors
+                else KNeighborsRegressor(n_neighbors=k_continuous).fit(X_jj, T_jj)
+            )
+
             # Compute the values of the variable in `T[:, jj` for the sampled points based on kNN
-            t = regressor.predict(x.reshape(-1, 1))
+            t = model.predict(x.reshape(-1, 1))
 
         else:
             ixs = rng.choice(len(X), size=min(N, len(X)), replace=False)
@@ -122,8 +133,10 @@ def factor_heatmap(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
+    discrete_factors: Optional[List[int]] = None,
     interpolate: bool = True,
-    k: int = 5,
+    k_continuous: int = 5,
+    k_discrete: int = 5,
     N: int = 4000,
     q: float = 0.05,
     attribute_names: Optional[List[str]] = None,
@@ -131,7 +144,7 @@ def factor_heatmap(
     rng: RandomGenerator = 42,
 ) -> None:
     """
-    Plots a "jet" heatmap of the values of a set of 1-dimensional variables against a 2-dimensional random variable.
+    Plots a heatmap of the values of a set of 1-dimensional variables against a 2-dimensional random variable.
     It plots the values of the provided set of points or samples `N` points uniformly from the square containing the
     2-dimensional variable, and interpolates the values of the set of other variables using `k`-nearest neighbours.
 
@@ -147,10 +160,13 @@ def factor_heatmap(
                 If "learned", it corresponds to the values of a learned dimension.
                 In that case, Y.shape[1] must be 2 and Z.shape[1] figures will be produces, one heatmap for each
                 of the columns of `Z`.
+        discrete_factors: List of indices of discrete factors.
+                          If None, it is assumed all factors are continuous.
         interpolate: Whether to plot the heatmaps as the values of *sampled* points (interpolate = True) based on a
                      kNN model learned on the true values or just plot the distribution and the heatmap of the original
                      `M` points provided.
-        k: Number of nearest neighbours to use for interpolation of the values.
+        k_continuous: Number of nearest neighbours to use for interpolation of the values if the targets are continuous.
+        k_discrete: Number of nearest neighbours to use for interpolation of the values if the targets are discrete.
         N: Number of data points to plot.
         q: The quantile at which to cut off the values of `Y`.
         attribute_names: A list of length Z.shape[1] (target = "ground-truth") or Y.shape[1] (target = "learned") to
@@ -186,7 +202,6 @@ def factor_heatmap(
         X_jj, T_jj = (X, T[:, jj]) if target == "ground-truth" else (X[:, [jj]], T)
 
         if interpolate:
-            regressor = KNeighborsRegressor(n_neighbors=k).fit(X_jj, T_jj)
 
             # Generate a uniform sample from the range of `X`
             x = rng.uniform(low=-1, high=1, size=(N, 2)) * np.asarray(
@@ -197,14 +212,20 @@ def factor_heatmap(
             )
 
             # Compute the values of the variable in `T[:, jj]` for the sampled points based on kNN
-            t = regressor.predict(x)
+            model = (
+                KNeighborsClassifier(n_neighbors=k_discrete).fit(X_jj, T_jj)
+                if jj in discrete_factors
+                else KNeighborsRegressor(n_neighbors=k_continuous).fit(X_jj, T_jj)
+            )
+
+            t = model.predict(x)
 
         else:
             ixs = rng.choice(len(X), size=min(N, len(X)), replace=False)
             x = X_jj[ixs]
             t = T_jj[ixs]
 
-        ax[jj].scatter(x[:, 0], x[:, 1], c=t, cmap="jet", s=3, label=t)
+        ax[jj].scatter(x[:, 0], x[:, 1], c=t, cmap="plasma" if jj in discrete_factors else "jet", s=6, label=t)
         ax[jj].set(
             xlabel=f"{axis_name} 1",
             ylabel=f"{axis_name} 2",

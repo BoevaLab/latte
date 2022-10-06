@@ -89,7 +89,7 @@ def _evaluate_subspace_factor_information(
     )
     # Compute the mutual information with all the methods
     result = {
-        method: space_evaluation.evaluate_space_with_mutual_information(
+        method: space_evaluation.mutual_information(
             Z=Z["val"],
             Y=Y["val"],
             A=A,
@@ -400,7 +400,7 @@ def _compute_information_about_factors(
     # Compute the information in each of the representation spaces with all available methods.
     results = [
         {
-            method: space_evaluation.evaluate_space_with_mutual_information(
+            method: space_evaluation.mutual_information(
                 Z=z,
                 Y=Y,
                 fitting_indices=train_ixs if method != MIEstimationMethod.KSG else latte_ksg_train_ixs,

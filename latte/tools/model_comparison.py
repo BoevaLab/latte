@@ -3,9 +3,10 @@ This module contains main wrapper functions around the `MIST` and `CCA` models f
 two representations spaces based either on mutual information or correlation.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 
 import torch
+import numpy as np
 from sklearn import preprocessing
 
 from latte.models.mist import estimation as mist_estimation
@@ -13,8 +14,8 @@ from latte.models.cca import estimation as cca_estimation
 
 
 def find_common_subspaces_with_mutual_information(
-    Z_1: torch.Tensor,
-    Z_2: torch.Tensor,
+    Z_1: Union[np.ndarray, torch.Tensor],
+    Z_2: Union[np.ndarray, torch.Tensor],
     subspace_sizes: Tuple[int, int] = (1, 1),
     standardise: bool = True,
     fitting_indices: Optional[List[int]] = None,
@@ -77,8 +78,13 @@ def find_common_subspaces_with_mutual_information(
 
     if standardise:
         # Standardise the data
-        Z_1 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_1.numpy())).float()
-        Z_2 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_2.numpy())).float()
+        Z_1 = Z_1.numpy() if isinstance(Z_1, torch.Tensor) else Z_1
+        Z_2 = Z_2.numpy() if isinstance(Z_2, torch.Tensor) else Z_2
+        Z_1 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_1)).float()
+        Z_2 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_2)).float()
+    else:
+        Z_1 = torch.from_numpy(Z_1) if isinstance(Z_1, np.ndarray) else Z_1
+        Z_2 = torch.from_numpy(Z_2) if isinstance(Z_2, np.ndarray) else Z_2
 
     if fitting_indices is None:
         # If no subset is provided, train on the entire dataset.

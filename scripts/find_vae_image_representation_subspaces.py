@@ -545,7 +545,7 @@ def _determine_factor_mutual_information(
     )
 
     for method in methods:
-        result = space_evaluation.evaluate_space_with_mutual_information(
+        result = space_evaluation.mutual_information(
             Z=Z,
             Y=Y,
             fitting_indices=ixs[method],
