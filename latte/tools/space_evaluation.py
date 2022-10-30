@@ -49,7 +49,7 @@ class ScikitModel(Protocol):
 def _get_Z(
     Z: Union[torch.Tensor, np.ndarray],
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     to_numpy: bool = False,
 ) -> Union[torch.Tensor, np.ndarray]:
     """
@@ -174,7 +174,9 @@ def mutual_information(
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     method: MIEstimationMethod = MIEstimationMethod.KSG,
-    standardise: bool = True,
+    p_train: float = 0.4,
+    p_val: float = 0.2,
+    standardise: bool = False,
 ) -> Dict[Union[Sequence[str], str], float]:
     """
     Evaluates the representations `Z` (optionally projected with the projection matrix `A`) w.r.t. how much information
@@ -193,6 +195,8 @@ def mutual_information(
                  factors specified by the lists.
         A: An optional projection matrix to a linear subspace to investigate.
         method: Which method to use to compute the mutual information.
+        p_train: The portion of the data for training for MIST.
+        p_val: The portion of the data for validation for MIST.
         standardise: Whether to standardise the data.
 
     Returns:
@@ -219,8 +223,10 @@ def mutual_information(
         if method == MIEstimationMethod.MIST:
             mi = model_comparison.find_common_subspaces_with_mutual_information(
                 Z_1=torch.from_numpy(Z).float(),
-                Z_2=torch.from_numpy(Y[:, target]).float(),
+                Z_2=torch.from_numpy(Y[:, target]).float() if isinstance(Y, np.ndarray) else Y[:, target],
                 fitting_indices=fitting_indices,
+                p_train=p_train,
+                p_val=p_val,
                 subspace_sizes=(Z.shape[1], len(target)),
                 standardise=standardise,
             )[-1]
@@ -229,6 +235,7 @@ def mutual_information(
                 Z[fitting_indices],
                 Y[fitting_indices][:, target].numpy() if isinstance(Y, torch.Tensor) else Y[fitting_indices][:, target],
                 neighborhoods=(5,),
+                standardize=standardise,
             )[5]
         elif method == MIEstimationMethod.NAIVE_KSG:
             mi = naive_ksg.mutual_information(
@@ -265,7 +272,7 @@ def evaluate_space_with_predictability(
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     nonlinear: bool = False,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> Dict[str, float]:
     """
     Wrapper function around the `evaluate_space_with_a_model` function for the discrete target case.
@@ -321,7 +328,7 @@ def subspace_entropy(
     Z: torch.Tensor,
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> float:
     """
     Estimates the entropy of the (projected) representation space `Z` with `MIST`.
@@ -339,7 +346,11 @@ def subspace_entropy(
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
     return model_comparison.find_common_subspaces_with_mutual_information(
-        Z_1=Z, Z_2=Z, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z.shape[1])
+        Z_1=Z,
+        Z_2=Z,
+        fitting_indices=fitting_indices,
+        subspace_sizes=(Z.shape[1], Z.shape[1]),
+        standardise=standardise,
     )[-1]
 
 
@@ -347,7 +358,7 @@ def subspace_mutual_information(
     Z: torch.Tensor,
     fitting_indices: List[int],
     A: torch.Tensor,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> float:
     """
     Estimates the mutual information between a linear subspace defined by the projection matrix `A` and the original
@@ -366,7 +377,11 @@ def subspace_mutual_information(
     Z_p = _get_Z(Z, A, standardise, to_numpy=False)
 
     return model_comparison.find_common_subspaces_with_mutual_information(
-        Z_1=Z, Z_2=Z_p, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z_p.shape[1])
+        Z_1=Z,
+        Z_2=Z_p,
+        fitting_indices=fitting_indices,
+        subspace_sizes=(Z.shape[1], Z_p.shape[1]),
+        standardise=standardise,
     )[-1]
 
 
@@ -376,7 +391,7 @@ def subspace_latent_traversals(
     model: VAE,
     X: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     rng: ds_utils.RandomGenerator = 1,
     device: str = "cuda",
     file_name: Optional[str] = None,
@@ -416,9 +431,9 @@ def subspace_heatmaps(
     Z: torch.Tensor,
     Y: torch.Tensor,
     factor_names: List[str],
-    discrete_factors: Optional[List[int]] = None,
+    discrete_factors: Sequence[int] = (),
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     target: str = "ground-truth",
     interpolate: bool = True,
     N: int = 5000,

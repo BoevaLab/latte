@@ -20,9 +20,9 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from pythae.models import VAE, AutoModel
 from pythae.samplers import GaussianMixtureSampler, GaussianMixtureSamplerConfig
 
-from latte.dataset import utils as dsutils
+from latte.dataset import utils as ds_utils
 from latte.models.vae import utils as vae_utils
-from latte.evaluation import subspace_evaluation
+from latte.evaluation import subspace_evaluation, metrics
 from latte.utils.visualisation import images as image_visualisation
 from latte.models.rlace import estimation as rlace_estimation
 from latte.models.linear_regression import estimation as linear_regression_estimation
@@ -64,6 +64,7 @@ class MISTConfig:
         training_Ns: The list of the different numbers of data points to use to fit the MIST model.
                              This is useful to inspect the sensitivity of the model to the number of training points.
                              It overrides `training_fractions`
+        estimation_N: Number of data points used for evaluation.
         model_class: The VAE flavour to use.
                      Currently supported: "BetaVAE", "BetaTCVAE", "FactorVAE".
         early_stopping_min_delta: Min delta parameter for the early stopping callback of the MIST model.
@@ -140,8 +141,8 @@ def _process_alternative_factors(
         for M, result_key in zip(
             [None, A],
             [
-                [factor, method, "full", "N/A", False, estimation_N],
-                [factor, method, subspace_size, factors, False, estimation_N],
+                [[factor], method, "full", "N/A", "N/A", estimation_N],
+                [[factor], method, subspace_size, factors, False, estimation_N],
             ],
         ):
             # Determine the amount of mutual information in the (projected) representation space about the
@@ -169,7 +170,7 @@ def _compute_predictability_of_attributes(
     attribute_predictability: List[List[Any]],
     baseline_attribute_predictability: List[List[Any]],
     cfg: MISTConfig,
-    rng: dsutils.RandomGenerator,
+    rng: ds_utils.RandomGenerator,
 ) -> None:
     """
     Computes the linear predictability of factors in `Y` with `evaluate_space_with_predictability`.
@@ -185,7 +186,7 @@ def _compute_predictability_of_attributes(
         dataset=cfg.dataset,
         factors=factors,
         nonlinear=False,
-        standardise=False,
+        standardise=True,
     )
 
     for attribute in baseline_scores:
@@ -229,7 +230,7 @@ def _process_subspace(
     baseline_attribute_predictability: List[List[Any]],
     cfg: MISTConfig,
     device: str,
-    rng: dsutils.RandomGenerator,
+    rng: ds_utils.RandomGenerator,
 ) -> None:
     """
     Takes in a projection matrix onto a linear subspace of the full VAE representation space, construct a VAE which
@@ -257,7 +258,7 @@ def _process_subspace(
     rng = np.random.default_rng(rng)
 
     evaluation_ixs = rng.choice(len(Z), size=cfg.estimation_N, replace=False)
-    latte_ksg_evaluation_ixs = rng.choice(len(Z), size=2000, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z), size=4000, replace=False)
 
     # `subspace_size` only refers to the dimensionality of the subspace the "maximisation matrix" projects onto
     # In case this function is called with the "erasing" matrix, we keep that dimensionality for logging,
@@ -308,7 +309,7 @@ def _process_subspace(
         # it takes too long
         print("Calculating the mutual information about the factors captured in the axes of the projected subspace.")
         axis_mi = subspace_evaluation.axis_factor_mutual_information(
-            Z_p, Y, factor_names=dsutils.get_dataset_module(cfg.dataset).attribute_names
+            Z_p, Y, factor_names=ds_utils.get_dataset_module(cfg.dataset).attribute_names
         )
         print(f"Average amount of information captured about:\n {axis_mi.mean(axis=1).sort_values(ascending=False)}.")
         print(f"Maximum amount of information captured about:\n {axis_mi.max(axis=1).sort_values(ascending=False)}.")
@@ -317,10 +318,14 @@ def _process_subspace(
         if projection_subspace_size <= 2:
             # If dimensionality of the subspace is at most 2, also plot the heatmaps.
             space_evaluation.subspace_heatmaps(
-                Z_p,
-                Y,
+                Z,
+                Y[
+                    :,
+                    [ds_utils.get_dataset_module(cfg.dataset).attribute2idx[a] for a in factors + alternative_factors],
+                ],
+                A=A,
                 factor_names=factors + alternative_factors,
-                standardise=False,
+                standardise=True,
                 file_name=f"heatmaps_{method}_{subspace_size}_{factors}_{estimation_N}.png",
             )
 
@@ -331,7 +336,7 @@ def _process_subspace(
             Y=Y,
             A=A,
             ixs={
-                MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+                # MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
                 MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
                 MIEstimationMethod.MIST: evaluation_ixs,
                 MIEstimationMethod.SKLEARN: evaluation_ixs,
@@ -345,23 +350,22 @@ def _process_subspace(
             factor_mutual_informations=factor_mutual_informations,
         )
 
-    if erased:
-        # Determine how much information is captured in the complement of the optimal subspace
-        _determine_factor_mutual_information(
-            Z=Z_p,
-            Y=Y,
-            A=A,
-            ixs={
-                MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
-                MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
-                MIEstimationMethod.MIST: evaluation_ixs,
-                MIEstimationMethod.SKLEARN: evaluation_ixs,
-            },
-            factors=factors,
-            prefix=[factors, method, subspace_size, factors, erased, estimation_N],
-            factor_mutual_informations=factor_mutual_informations,
-            cfg=cfg,
-        )
+    # Determine how much information is captured in the complement of the optimal subspace
+    _determine_factor_mutual_information(
+        Z=Z,
+        Y=Y,
+        A=A,
+        ixs={
+            # MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+            MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
+            MIEstimationMethod.MIST: evaluation_ixs,
+            MIEstimationMethod.SKLEARN: evaluation_ixs,
+        },
+        factors=factors,
+        prefix=[factors, method, subspace_size, factors, erased, estimation_N],
+        factor_mutual_informations=factor_mutual_informations,
+        cfg=cfg,
+    )
 
     # Evaluate (the optimal subspace or its complement) with the (linear) predictability of the factors w.r.t. which
     # the subspace was estimated.
@@ -415,7 +419,7 @@ def _find_subspace(
     method.
     """
 
-    factors_of_interest_idx = [dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
+    factors_of_interest_idx = [ds_utils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors]
     print(f"Determining the most informative {subspace_size}-dimensional subspace about {factors}.")
     if method == "MIST":
         result = subspace_search.find_subspace(
@@ -535,13 +539,14 @@ def _determine_factor_mutual_information(
 
     methods = (
         [
-            MIEstimationMethod.NAIVE_KSG,
+            # MIEstimationMethod.NAIVE_KSG,
             MIEstimationMethod.KSG,
             MIEstimationMethod.MIST,
             MIEstimationMethod.SKLEARN,
         ]
         if Z.shape[1] == 1
-        else [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
+        # else [MIEstimationMethod.NAIVE_KSG, MIEstimationMethod.KSG, MIEstimationMethod.MIST]
+        else [MIEstimationMethod.KSG, MIEstimationMethod.MIST]
     )
 
     for method in methods:
@@ -553,7 +558,7 @@ def _determine_factor_mutual_information(
             factors=[tuple(factors)],
             A=A,
             method=method,
-            standardise=False,
+            standardise=True,
         )
         factor_mutual_informations.append(prefix + [method, result[tuple(factors)]])
         print(f"The information about {factors} by method {method} in the space is {result[tuple(factors)]:.3f}.")
@@ -572,9 +577,10 @@ def _process_factors_of_interest(
     factor_entropies: List[List[Any]],
     log_likelihoods: List[List[Any]],
     optimal_subspace_mutual_information: List[List[Any]],
+    distances_to_permutations_matrix: List[List[Any]],
     cfg: MISTConfig,
     device: str,
-    rng: dsutils.RandomGenerator,
+    rng: ds_utils.RandomGenerator,
 ) -> None:
     """
     Finds the optimal subspace capturing the most information about the set of factors of interest specified.
@@ -599,19 +605,19 @@ def _process_factors_of_interest(
     _estimate_factor_entropies(
         Y=Y["val"],
         factors=factors,
-        factors_idx=[dsutils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors],
+        factors_idx=[ds_utils.get_dataset_module(cfg.dataset).attribute2idx[factor] for factor in factors],
         factor_entropies=factor_entropies,
     )
 
     # To find out how much information about the factors of interest there is in the entire learned representation
     # space, we train a MIST model on the entire space
     evaluation_ixs = rng.choice(len(Z["val"]), size=cfg.estimation_N, replace=False)
-    latte_ksg_evaluation_ixs = rng.choice(len(Z["val"]), size=2000, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z["val"]), size=4000, replace=False)
     _determine_factor_mutual_information(
         Z=Z["val"],
         Y=Y["val"],
         ixs={
-            MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
+            # MIEstimationMethod.NAIVE_KSG: evaluation_ixs,
             MIEstimationMethod.KSG: latte_ksg_evaluation_ixs,
             MIEstimationMethod.MIST: evaluation_ixs,
             MIEstimationMethod.SKLEARN: evaluation_ixs,
@@ -636,7 +642,8 @@ def _process_factors_of_interest(
         if len(factors) > 1:
             methods = ["MIST"]
         else:
-            methods = ["MIST", "rLACE", "Linear Regression"] if subspace_size == 1 else ["MIST", "rLACE"]
+            # methods = ["MIST", "rLACE", "Linear Regression"] if subspace_size == 1 else ["MIST", "rLACE"]
+            methods = ["MIST"]
 
         # The MIST model is trained in different number of data points to test the sensitivity to the dataset size
         for fitting_N in fitting_Ns:
@@ -663,6 +670,9 @@ def _process_factors_of_interest(
                     cfg=cfg,
                     optimal_subspace_mutual_information=optimal_subspace_mutual_information,
                 )
+
+                permutation_dist = metrics.distance_to_permutation_matrix(A)
+                distances_to_permutations_matrix.append([factors, subspace_size, method, fitting_N, permutation_dist])
 
                 # Process and analyze the subspace defined by the projection matrix onto the optimal subspace and
                 # the out defined by the projection matrix onto the *complement* of the optimal subspace,
@@ -717,6 +727,7 @@ def _save_results(
     attribute_predictability: List[List[Any]],
     baseline_attribute_predictability: List[List[Any]],
     optimal_subspace_mutual_information: List[List[Any]],
+    distances_to_permutations_matrix: List[List[Any]],
 ) -> None:
     results = [
         log_likelihoods,
@@ -725,6 +736,7 @@ def _save_results(
         attribute_predictability,
         baseline_attribute_predictability,
         optimal_subspace_mutual_information,
+        distances_to_permutations_matrix,
     ]
     file_names = [
         "log_likelihoods.csv",
@@ -733,6 +745,7 @@ def _save_results(
         "attribute_predictability.csv",
         "baseline_attribute_predictability.csv",
         "optimal_subspace_mutual_information.csv",
+        "distances_to_permutations_matrix.csv",
     ]
     columnss = [
         ["Model Type", "Log-Likelihood"],
@@ -764,11 +777,12 @@ def _save_results(
             "Baseline Predictability",
         ],
         ["Factors", "Subspace Size", "Mutual Information Estimation Method", "Training Set Size", "Mutual Information"],
+        ["Factors", "Subspace Size", "Mutual Information Estimation Method", "Training Set Size", "Distance"],
     ]
     for result, file_name, columns in zip(results, file_names, columnss):
         pd.DataFrame(
             result,
-            columns=result,
+            columns=columns,
         ).to_csv(file_name)
 
 
@@ -794,7 +808,7 @@ def main(cfg: MISTConfig):
     model = AutoModel.load_from_folder(cfg.vae_model_file_path).to(device)
 
     # Load the data from the pre-split dataset
-    X, Y = dsutils.load_split_data(
+    X, Y = ds_utils.load_split_data(
         {"train": cfg.file_paths_x[0], "val": cfg.file_paths_x[1], "test": cfg.file_paths_x[2]},
         {"train": cfg.file_paths_y[0], "val": cfg.file_paths_y[1], "test": cfg.file_paths_y[2]},
         cfg.dataset,
@@ -828,6 +842,7 @@ def main(cfg: MISTConfig):
     factor_entropies, factor_mutual_informations = [], []
     attribute_predictability, baseline_attribute_predictability = [], []
     optimal_subspace_mutual_information = []
+    distances_to_permutations_matrix = []
     # Go through the specified factors of interest, and for each provided set, find the subspace capturing the most
     # information about then, and analyse it
     for ii in range(len(cfg.factors_of_interest)):
@@ -848,6 +863,7 @@ def main(cfg: MISTConfig):
             log_likelihoods=log_likelihoods,
             factor_entropies=factor_entropies,
             optimal_subspace_mutual_information=optimal_subspace_mutual_information,
+            distances_to_permutations_matrix=distances_to_permutations_matrix,
         )
 
     _save_results(
@@ -857,6 +873,7 @@ def main(cfg: MISTConfig):
         attribute_predictability,
         baseline_attribute_predictability,
         optimal_subspace_mutual_information,
+        distances_to_permutations_matrix,
     )
 
     print("Finished.")

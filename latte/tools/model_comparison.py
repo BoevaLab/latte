@@ -17,8 +17,10 @@ def find_common_subspaces_with_mutual_information(
     Z_1: Union[np.ndarray, torch.Tensor],
     Z_2: Union[np.ndarray, torch.Tensor],
     subspace_sizes: Tuple[int, int] = (1, 1),
-    standardise: bool = True,
+    standardise: bool = False,
     fitting_indices: Optional[List[int]] = None,
+    p_train: float = 0.4,
+    p_val: float = 0.2,
     max_epochs: int = 256,
     mine_network_width: int = 200,
     mine_learning_rate: float = 1e-4,
@@ -47,6 +49,8 @@ def find_common_subspaces_with_mutual_information(
         standardise: Whether to standardise the data before estimation.
         fitting_indices: Optional sequence of indices of the samples to use to perform estimation
                          on a subset of the data.
+        p_train: The portion of the data for training.
+        p_val: The portion of the data for validation.
         max_epochs: The maximum number of epochs to train the MINE model for.
         mine_network_width: Size of the hidden layers of the standard `MINE` network.
         mine_learning_rate: Learning rate for the parameters of the `MINE` model.
@@ -83,8 +87,8 @@ def find_common_subspaces_with_mutual_information(
         Z_1 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_1)).float()
         Z_2 = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Z_2)).float()
     else:
-        Z_1 = torch.from_numpy(Z_1) if isinstance(Z_1, np.ndarray) else Z_1
-        Z_2 = torch.from_numpy(Z_2) if isinstance(Z_2, np.ndarray) else Z_2
+        Z_1 = torch.from_numpy(Z_1).float() if isinstance(Z_1, np.ndarray) else Z_1
+        Z_2 = torch.from_numpy(Z_2).float() if isinstance(Z_2, np.ndarray) else Z_2
 
     if fitting_indices is None:
         # If no subset is provided, train on the entire dataset.
@@ -95,7 +99,11 @@ def find_common_subspaces_with_mutual_information(
         X=Z_1[fitting_indices],
         Z_max=Z_2[fitting_indices],
         datamodule_kwargs=dict(
-            num_workers=num_workers, p_train=0.4, p_val=0.2, batch_size=batch_size, test_batch_size=test_batch_size
+            num_workers=num_workers,
+            p_train=p_train,
+            p_val=p_val,
+            batch_size=batch_size,
+            test_batch_size=test_batch_size,
         ),
         model_kwargs=dict(
             x_size=Z_1.shape[1],
@@ -123,7 +131,7 @@ def find_common_subspaces_with_correlation(
     Z_1: torch.Tensor,
     Z_2: torch.Tensor,
     subspace_size: int = 1,
-    standardise: bool = True,
+    standardise: bool = False,
     fitting_indices: Optional[List[int]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """

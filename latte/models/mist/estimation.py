@@ -361,7 +361,9 @@ def fit(
 
     # Extract the found projection matrix
     A_hat_x = best_model.projection_layer_x.A.detach().cpu()
+    d_x, m_x = A_hat_x.shape
     A_hat_z = best_model.projection_layer_z.A.detach().cpu()
+    d_z, m_z = A_hat_z.shape
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
@@ -381,8 +383,8 @@ def fit(
         estimator=best_model,
         A_1=A_hat_x,
         A_2=A_hat_z,
-        E_1=torch.eye(A_hat_x.shape[0]) - A_hat_x @ A_hat_x.T,
-        E_2=torch.eye(A_hat_z.shape[0]) - A_hat_z @ A_hat_z.T,
+        E_1=torch.linalg.svd(torch.eye(A_hat_x.shape[0]) - A_hat_x @ A_hat_x.T, full_matrices=False)[0][:, : d_x - m_x],
+        E_2=torch.linalg.svd(torch.eye(A_hat_z.shape[0]) - A_hat_z @ A_hat_z.T, full_matrices=False)[0][:, : d_z - m_z],
     )
 
     return mi_estimate

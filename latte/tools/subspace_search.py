@@ -26,9 +26,11 @@ def find_subspace(
     Y: Union[torch.Tensor, np.ndarray],
     subspace_size: int,
     method: SubspaceEstimationMethod = SubspaceEstimationMethod.MIST,
-    standardise: bool = True,
+    standardise: bool = False,
     fitting_indices: Optional[List[int]] = None,
     max_epochs: int = 256,
+    p_train: float = 0.4,
+    p_val: float = 0.2,
     mine_network_width: int = 200,
     mine_learning_rate: float = 1e-4,
     manifold_learning_rate: float = 1e-2,
@@ -60,6 +62,8 @@ def find_subspace(
         fitting_indices: Optional sequence of indices of the samples to use to perform estimation
                          on a subset of the data.
         max_epochs: The maximum number of epochs to train the MINE model for.
+        p_train: The portion of the data for training with `MIST`.
+        p_val: The portion of the data for validation with `MIST`.
         mine_network_width: Size of the hidden layers of the standard `MINE` network.
         mine_learning_rate: Learning rate for the parameters of the `MINE` model.
         manifold_learning_rate: Learning rate for the projection matrix.
@@ -97,8 +101,8 @@ def find_subspace(
             Y = Y.numpy() if isinstance(Y, torch.Tensor) else Y
             Y = torch.from_numpy(preprocessing.StandardScaler().fit_transform(Y)).float()
     else:
-        Z = torch.from_numpy(Z) if isinstance(Z, np.ndarray) else Z
-        Y = torch.from_numpy(Y) if isinstance(Y, np.ndarray) else Y
+        Z = torch.from_numpy(Z).float() if isinstance(Z, np.ndarray) else Z
+        Y = torch.from_numpy(Y).float() if isinstance(Y, np.ndarray) else Y
 
     if fitting_indices is None:
         # If no subset is provided, train on the entire dataset.
@@ -109,7 +113,11 @@ def find_subspace(
             X=Z[fitting_indices],
             Z_max=Y[fitting_indices],
             datamodule_kwargs=dict(
-                num_workers=num_workers, batch_size=batch_size, test_batch_size=test_batch_size, p_train=0.4, p_val=0.2
+                num_workers=num_workers,
+                batch_size=batch_size,
+                test_batch_size=test_batch_size,
+                p_train=p_train,
+                p_val=p_val,
             ),
             model_kwargs=dict(
                 x_size=Z.shape[1],

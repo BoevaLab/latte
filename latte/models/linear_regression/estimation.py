@@ -44,17 +44,18 @@ def fit(X: np.ndarray, Z: np.ndarray, p_train: float = 0.8) -> LinearRegressionR
     lr = LinearRegression()
     lr.fit(X, Z)
 
-    A_hat = (lr.coef_.reshape(-1, 1) / np.linalg.norm(lr.coef_)).astype(np.float32)  # Make unit length
-    E_hat = np.eye(A_hat.shape[0], dtype=np.float32) - A_hat @ A_hat.T
+    A = (lr.coef_.reshape(-1, 1) / np.linalg.norm(lr.coef_)).astype(np.float32)  # Make unit length
+    d, m = A.shape
+    E = np.linalg.svd(np.eye(A.shape[0], dtype=np.float32) - A @ A.T, full_matrices=False)[0][:, : d - m]
 
-    X_test_projected_A, X_test_projected_E = X_test @ A_hat, X_test @ E_hat
+    X_test_projected_A, X_test_projected_E = X_test @ A, X_test @ E
 
     # Construct the result
     mi_estimate = LinearRegressionResult(
         mutual_information=naive_ksg.mutual_information([X_test_projected_A, Z_test.reshape(-1, 1)], k=3),
         complement_mutual_information=naive_ksg.mutual_information([X_test_projected_E, Z_test.reshape(-1, 1)], k=3),
-        A_1=torch.from_numpy(A_hat).float(),
-        E_1=torch.from_numpy(E_hat).float(),
+        A_1=torch.from_numpy(A).float(),
+        E_1=torch.from_numpy(E).float(),
     )
 
     return mi_estimate

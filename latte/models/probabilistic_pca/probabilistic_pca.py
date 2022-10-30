@@ -3,6 +3,7 @@ Code for generation of data from the probabilistic PCA generative model as well 
 estimation and computation.
 """
 import dataclasses
+from typing import Optional
 
 import numpy as np
 from scipy import stats
@@ -40,7 +41,13 @@ class ProbabilisticPCADataset:
 
 
 def generate(
-    N: int, n: int, d: int, d_measured: int, sigma: float = 0.1, spread: float = 1.0, rng: RandomGenerator = 42
+    N: int,
+    n: int,
+    d: int,
+    d_measured: Optional[int] = None,
+    sigma: float = 0.1,
+    spread: float = 1.0,
+    rng: RandomGenerator = 42,
 ) -> ProbabilisticPCADataset:
     """
     Function generating a dataset according to the probabilistic PCA generative model.
@@ -64,6 +71,8 @@ def generate(
     Returns:
         Populated GaussianGenerativeDataset
     """
+    if not d_measured:
+        d_measured = d
 
     rng = np.random.default_rng(rng)
 

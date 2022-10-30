@@ -53,6 +53,7 @@ def fit(
     P_hat_x = torch.eye(E_hat_x.shape[0]) - E_hat_x
     U, _, _ = torch.linalg.svd(P_hat_x)
     A_hat_x = U[:, : rlace_params.get("rank", 1)].float()
+    d, m = A_hat_x.shape
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
@@ -82,7 +83,7 @@ def fit(
             neighborhoods=(5,),
         )[5],
         A_1=A_hat_x,
-        E_1=E_hat_x,
+        E_1=torch.linalg.svd(E_hat_x, full_matrices=False)[0][:, : d - m],
     )
 
     return mi_estimate

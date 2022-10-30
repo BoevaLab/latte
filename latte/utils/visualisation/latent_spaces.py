@@ -2,7 +2,7 @@
 Various visualisation helper functions for plotting heatmaps and factor trends in small-dimensional (1D or 2D) latent
 spaces.
 """
-from typing import Optional, List
+from typing import Optional, List, Sequence
 
 import numpy as np
 import torch
@@ -17,7 +17,7 @@ def factor_trend(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
-    discrete_factors: Optional[List[int]] = None,
+    discrete_factors: Sequence[int] = (),
     interpolate: bool = True,
     k_continuous: int = 5,
     k_discrete: int = 5,
@@ -133,7 +133,7 @@ def factor_heatmap(
     Z: torch.Tensor,
     Y: torch.Tensor,
     target: str,
-    discrete_factors: Optional[List[int]] = None,
+    discrete_factors: Sequence[int] = (),
     interpolate: bool = True,
     k_continuous: int = 5,
     k_discrete: int = 5,
