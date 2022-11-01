@@ -11,7 +11,7 @@ import time
 from torch.optim import SGD
 import sklearn
 
-EVAL_CLF_PARAMS = {"loss": "log_loss", "tol": 1e-4, "iters_no_change": 15, "alpha": 1e-4, "max_iter": 25000}
+EVAL_CLF_PARAMS = {"loss": "modified_huber", "tol": 1e-4, "iters_no_change": 15, "alpha": 1e-4, "max_iter": 25000}
 NUM_CLFS_IN_EVAL = 3  # change to 1 for large dataset / high dimensionality
 
 
@@ -116,6 +116,7 @@ def prepare_output(P, rank, score):
 def solve_adv_game(  # noqa: C901
     X_train,
     y_train,
+    discrete: bool = True,
     rank=1,
     device="cpu",
     out_iters=75000,
@@ -155,15 +156,20 @@ def solve_adv_game(  # noqa: C901
     X_torch = torch.tensor(X_train).float().to(device)
     y_torch = torch.tensor(y_train).float().to(device)
 
-    num_labels = len(set(y_train.tolist()))
-    if num_labels == 2:
-        predictor = torch.nn.Linear(X_train.shape[1], 1).to(device)
-        bce_loss_fn = torch.nn.BCEWithLogitsLoss()
-        y_torch = y_torch.float()
+    if discrete:
+        num_labels = len(set(y_train.tolist()))
+        if num_labels == 2:
+            predictor = torch.nn.Linear(X_train.shape[1], 1).to(device)
+            loss_fn = torch.nn.BCEWithLogitsLoss()
+            y_torch = y_torch.float()
+        else:
+            predictor = torch.nn.Linear(X_train.shape[1], num_labels).to(device)
+            loss_fn = torch.nn.CrossEntropyLoss()
+            y_torch = y_torch.long()
     else:
-        predictor = torch.nn.Linear(X_train.shape[1], num_labels).to(device)
-        bce_loss_fn = torch.nn.CrossEntropyLoss()
-        y_torch = y_torch.long()
+        predictor = torch.nn.Linear(X_train.shape[1], 1).to(device)
+        loss_fn = torch.nn.MSELoss()
+        y_torch = y_torch.float()
 
     P = 1e-1 * torch.randn(X_train.shape[1], X_train.shape[1]).to(device)
     P.requires_grad = True
@@ -187,7 +193,7 @@ def solve_adv_game(  # noqa: C901
             np.random.shuffle(idx)
             X_batch, y_batch = X_torch[idx[:batch_size]], y_torch[idx[:batch_size]]
 
-            loss_P = get_loss_fn(X_batch, y_batch, predictor, symmetric(P), bce_loss_fn, optimize_P=True)
+            loss_P = get_loss_fn(X_batch, y_batch, predictor, symmetric(P), loss_fn, optimize_P=True)
             loss_P.backward()
             optimizer_P.step()
 
@@ -206,7 +212,7 @@ def solve_adv_game(  # noqa: C901
             np.random.shuffle(idx)
             X_batch, y_batch = X_torch[idx[:batch_size]], y_torch[idx[:batch_size]]
 
-            loss_predictor = get_loss_fn(X_batch, y_batch, predictor, symmetric(P), bce_loss_fn, optimize_P=False)
+            loss_predictor = get_loss_fn(X_batch, y_batch, predictor, symmetric(P), loss_fn, optimize_P=False)
             loss_predictor.backward()
             optimizer_predictor.step()
             count_examples += batch_size

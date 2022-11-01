@@ -3,7 +3,7 @@ This module contains main wrapper functions around the various tools for estimat
 linear subspaces in terms of the mutual information, predictability, and entropy, captured in the subspace.
 """
 
-from typing import List, Dict, Protocol, Any, Optional, Union, Tuple
+from typing import List, Dict, Protocol, Any, Optional, Union, Sequence
 from enum import Enum
 from collections import Counter
 
@@ -47,9 +47,9 @@ class ScikitModel(Protocol):
 
 
 def _get_Z(
-    Z: torch.Tensor,
+    Z: Union[torch.Tensor, np.ndarray],
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     to_numpy: bool = False,
 ) -> Union[torch.Tensor, np.ndarray]:
     """
@@ -65,10 +65,11 @@ def _get_Z(
         Processed dataset.
     """
 
-    if standardise:
-        Z = preprocessing.StandardScaler().fit_transform(Z.numpy())
-    else:
+    if isinstance(Z, torch.Tensor):
         Z = Z.numpy()
+
+    if standardise:
+        Z = preprocessing.StandardScaler().fit_transform(Z)
 
     if A is not None:
         Z = Z @ A.detach().cpu().numpy()
@@ -165,16 +166,18 @@ def evaluate_space_with_a_model(
     )
 
 
-def evaluate_space_with_mutual_information(
-    Z: torch.Tensor,
-    Y: torch.Tensor,
-    dataset: str,
-    factors: List[Tuple[str]],
+def mutual_information(
+    Z: Union[torch.Tensor, np.ndarray],
+    Y: Union[torch.Tensor, np.ndarray],
+    factors: Optional[Union[Sequence[str], List[Sequence[str]]]] = None,
+    dataset: Optional[str] = None,
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     method: MIEstimationMethod = MIEstimationMethod.KSG,
-    standardise: bool = True,
-) -> Dict[Tuple[str], float]:
+    p_train: float = 0.4,
+    p_val: float = 0.2,
+    standardise: bool = False,
+) -> Dict[Union[Sequence[str], str], float]:
     """
     Evaluates the representations `Z` (optionally projected with the projection matrix `A`) w.r.t. how much information
     they contain about the factors captured in `Y`.
@@ -192,6 +195,8 @@ def evaluate_space_with_mutual_information(
                  factors specified by the lists.
         A: An optional projection matrix to a linear subspace to investigate.
         method: Which method to use to compute the mutual information.
+        p_train: The portion of the data for training for MIST.
+        p_val: The portion of the data for validation for MIST.
         standardise: Whether to standardise the data.
 
     Returns:
@@ -205,47 +210,56 @@ def evaluate_space_with_mutual_information(
 
     Z = _get_Z(Z, A, standardise, to_numpy=True)
 
+    if dataset is not None:
+        targets = (
+            [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group] for factor_group in factors
+        )
+    else:
+        targets = [[ii] for ii in range(Y.shape[1])] if factors is not None else [list(range(Y.shape[1]))]
+
     # Loop through all the specified sets of factors and compute the mutual information
-    for factor_group in tqdm(factors):
+    for jj, target in enumerate(tqdm(targets)):
 
         if method == MIEstimationMethod.MIST:
             mi = model_comparison.find_common_subspaces_with_mutual_information(
                 Z_1=torch.from_numpy(Z).float(),
-                Z_2=Y,
+                Z_2=torch.from_numpy(Y[:, target]).float() if isinstance(Y, np.ndarray) else Y[:, target],
                 fitting_indices=fitting_indices,
-                subspace_sizes=(Z.shape[1], 1),
-                standardise=False,
+                p_train=p_train,
+                p_val=p_val,
+                subspace_sizes=(Z.shape[1], len(target)),
+                standardise=standardise,
             )[-1]
         elif method == MIEstimationMethod.KSG:
             mi = ksg.estimate_mi_ksg(
                 Z[fitting_indices],
-                Y[fitting_indices][
-                    :, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]
-                ].numpy(),
+                Y[fitting_indices][:, target].numpy() if isinstance(Y, torch.Tensor) else Y[fitting_indices][:, target],
                 neighborhoods=(5,),
+                standardize=standardise,
             )[5]
         elif method == MIEstimationMethod.NAIVE_KSG:
             mi = naive_ksg.mutual_information(
                 (
                     Z[fitting_indices],
-                    Y[fitting_indices][
-                        :, [ds_utils.get_dataset_module(dataset).attribute2idx[f] for f in factor_group]
-                    ].numpy(),
+                    Y[fitting_indices][:, target].numpy()
+                    if isinstance(Y, torch.Tensor)
+                    else Y[fitting_indices][:, target],
                 ),
                 k=5,
             )
         elif method == MIEstimationMethod.SKLEARN:
             assert Z.shape[1] == 1
-            assert len(factor_group) == 1
+            assert len(target) == 1
             mi = feature_selection.mutual_info_regression(
                 Z[fitting_indices],
-                Y[fitting_indices][:, ds_utils.get_dataset_module(dataset).attribute2idx[factor_group[0]]].numpy(),
+                Y[fitting_indices][:, target].numpy() if isinstance(Y, torch.Tensor) else Y[fitting_indices][:, target],
             )[0]
         else:
             raise NotImplementedError
 
         # Save the computed mutual information
-        results[factor_group] = round(mi, 3)
+        key = factors[jj] if factors is not None else "Y"
+        results[key] = round(mi, 3)
 
     return results
 
@@ -258,20 +272,20 @@ def evaluate_space_with_predictability(
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
     nonlinear: bool = False,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> Dict[str, float]:
     """
-    Wrapper function around the `evaluate_space_with_mutual_information` function for the discrete target case.
+    Wrapper function around the `evaluate_space_with_a_model` function for the discrete target case.
     Args:
         Z: The latent representations of the entire dataset.
         Y: The ground-truth values of all the factors of the entire dataset.
         fitting_indices: Optional list of indices of the datapoints to use for estimation.
         A: Optional projection matrix to a linear subspace to evaluate.
         nonlinear: Whether to evaluate with a nonlinear model (an SVM classifier).
-        dataset, factors, standardise: Parameters for the `evaluate_space_with_mutual_information` function.
+        dataset, factors, standardise: Parameters for the `evaluate_space_with_a_model` function.
 
     Returns:
-        Dictionary of `evaluate_space_with_mutual_information` results for all factors specified in `factors`.
+        Dictionary of `evaluate_space_with_a_model` results for all factors specified in `factors`.
     """
     results = dict()
 
@@ -314,7 +328,7 @@ def subspace_entropy(
     Z: torch.Tensor,
     fitting_indices: Optional[List[int]] = None,
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> float:
     """
     Estimates the entropy of the (projected) representation space `Z` with `MIST`.
@@ -332,7 +346,11 @@ def subspace_entropy(
     Z = _get_Z(Z, A, standardise, to_numpy=False)
 
     return model_comparison.find_common_subspaces_with_mutual_information(
-        Z_1=Z, Z_2=Z, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z.shape[1])
+        Z_1=Z,
+        Z_2=Z,
+        fitting_indices=fitting_indices,
+        subspace_sizes=(Z.shape[1], Z.shape[1]),
+        standardise=standardise,
     )[-1]
 
 
@@ -340,7 +358,7 @@ def subspace_mutual_information(
     Z: torch.Tensor,
     fitting_indices: List[int],
     A: torch.Tensor,
-    standardise: bool = True,
+    standardise: bool = False,
 ) -> float:
     """
     Estimates the mutual information between a linear subspace defined by the projection matrix `A` and the original
@@ -359,7 +377,11 @@ def subspace_mutual_information(
     Z_p = _get_Z(Z, A, standardise, to_numpy=False)
 
     return model_comparison.find_common_subspaces_with_mutual_information(
-        Z_1=Z, Z_2=Z_p, fitting_indices=fitting_indices, subspace_sizes=(Z.shape[1], Z_p.shape[1])
+        Z_1=Z,
+        Z_2=Z_p,
+        fitting_indices=fitting_indices,
+        subspace_sizes=(Z.shape[1], Z_p.shape[1]),
+        standardise=standardise,
     )[-1]
 
 
@@ -369,7 +391,7 @@ def subspace_latent_traversals(
     model: VAE,
     X: Optional[torch.Tensor] = None,
     starting_x: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     rng: ds_utils.RandomGenerator = 1,
     device: str = "cuda",
     file_name: Optional[str] = None,
@@ -409,12 +431,14 @@ def subspace_heatmaps(
     Z: torch.Tensor,
     Y: torch.Tensor,
     factor_names: List[str],
+    discrete_factors: Sequence[int] = (),
     A: Optional[torch.Tensor] = None,
-    standardise: bool = True,
+    standardise: bool = False,
     target: str = "ground-truth",
     interpolate: bool = True,
     N: int = 5000,
-    k: int = 250,
+    k_continuous: int = 250,
+    k_discrete: int = 250,
     q: float = 0.25,
     file_name: Optional[str] = None,
 ) -> None:
@@ -424,9 +448,12 @@ def subspace_heatmaps(
         Z: The original representations.
         Y: The ground-truth values of the factors of variation.
         factor_names: The names of the factors whose heatmaps to plot.
+        discrete_factors: List of indices of discrete factors.
+                          If None, it is assumed all factors are continuous.
         A: Optional projection matrix to a linear subspace whose heatmaps to produce.
         standardise: Whether to standardise the data.
-        target, interpolate, N, k, q, file_name: parameters for the `factor_heatmap` or `factor_trend` functions.
+        target, interpolate, N, k_continuous, k_discrete, q, file_name: parameters for the `factor_heatmap` or
+                                                                        `factor_trend` functions.
 
     """
 
@@ -442,9 +469,11 @@ def subspace_heatmaps(
         Z,
         Y,
         target=target,
+        discrete_factors=discrete_factors,
         interpolate=interpolate,
         N=N,
-        k=k,
+        k_continuous=k_continuous,
+        k_discrete=k_discrete,
         q=q,
         attribute_names=factor_names,
         file_name=file_name,

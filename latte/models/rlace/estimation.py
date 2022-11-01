@@ -7,7 +7,8 @@ import torch
 from latte.models.rlace import rlace
 from latte.dataset import utils as dataset_utils
 from latte.manifolds import utils as mutils
-from latte.tools.ksg import naive_ksg
+from latte.tools.ksg import ksg
+from latte.dataset.utils import RandomGenerator
 
 
 @dataclasses.dataclass
@@ -26,7 +27,14 @@ class RLACEResult:
     complement_mutual_information: float
 
 
-def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: float = 0.8) -> RLACEResult:
+def fit(
+    X: np.ndarray,
+    Z: np.ndarray,
+    rlace_params: Dict[str, Any],
+    p_train: float = 0.8,
+    ksg_N: int = 8000,
+    rng: RandomGenerator = 1,
+) -> RLACEResult:
     """
     Main function of the module.
     `rLACE` version of the `fit_subspace` function from `MIST` evaluation.
@@ -36,6 +44,8 @@ def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: flo
         Z: Corresponding samples of the distribution in regard to which the mutual information should be maximised.
         rlace_params: Parameters for training the `rLACE` model.
         p_train: Proportion of the training data.
+        ksg_N: Number of datapoints to use for estimating the MI in the subspace using the KSG estimator.
+        rng: The random generator.
 
     Returns:
         A RLACEResult object containing the results of the estimation.
@@ -49,6 +59,7 @@ def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: flo
     P_hat_x = torch.eye(E_hat_x.shape[0]) - E_hat_x
     U, _, _ = torch.linalg.svd(P_hat_x)
     A_hat_x = U[:, : rlace_params.get("rank", 1)].float()
+    d, m = A_hat_x.shape
 
     # Assert we get a valid orthogonal matrix
     # We relax the condition for larger matrices since they are harder to keep close to orthogonal
@@ -60,13 +71,26 @@ def fit(X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: flo
     X_test_projected_A, X_test_projected_E = X_test @ A_hat_x, X_test @ E_hat_x
 
     # Construct the result
+    rng = np.random.default_rng(rng)
+    mi_estimation_ix = rng.choice(len(Z_test), min(ksg_N, len(Z_test)), replace=False)
+    # TODO (Pawel): Generalise the KSG estimation to other than 5 neighbours.
     mi_estimate = RLACEResult(
-        mutual_information=naive_ksg.mutual_information([X_test_projected_A.numpy(), Z_test.reshape(-1, 1)], k=3),
-        complement_mutual_information=naive_ksg.mutual_information(
-            [X_test_projected_E.numpy(), Z_test.reshape(-1, 1)], k=3
-        ),
+        mutual_information=ksg.estimate_mi_ksg(
+            X_test_projected_A[mi_estimation_ix].numpy(),
+            Z_test[mi_estimation_ix].reshape(-1, 1).numpy()
+            if isinstance(Z_test, torch.Tensor)
+            else Z_test[mi_estimation_ix].reshape(-1, 1),
+            neighborhoods=(5,),
+        )[5],
+        complement_mutual_information=ksg.estimate_mi_ksg(
+            X_test_projected_E[mi_estimation_ix].numpy(),
+            Z_test[mi_estimation_ix].reshape(-1, 1).numpy()
+            if isinstance(Z_test, torch.Tensor)
+            else Z_test[mi_estimation_ix].reshape(-1, 1),
+            neighborhoods=(5,),
+        )[5],
         A_1=A_hat_x,
-        E_1=E_hat_x,
+        E_1=torch.linalg.svd(E_hat_x, full_matrices=False)[0][:, : d - m],
     )
 
     return mi_estimate
