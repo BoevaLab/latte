@@ -71,7 +71,7 @@ def generate(
     Returns:
         Populated GaussianGenerativeDataset
     """
-    if not d_measured:
+    if d_measured is None:
         d_measured = d
 
     rng = np.random.default_rng(rng)

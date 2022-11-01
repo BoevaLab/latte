@@ -6,6 +6,7 @@ from sklearn.cross_decomposition import CCA
 
 from latte.tools.ksg import naive_ksg
 from latte.dataset import utils as dataset_utils
+from latte.utils import subspaces
 
 
 @dataclasses.dataclass
@@ -57,8 +58,8 @@ def fit(X: np.ndarray, Z: np.ndarray, subspace_size: int, p_train: float = 0.8) 
 
     A_hat_1, A_hat_2 = cca.x_weights_, cca.y_weights_
     (d_1, m_1), (d_2, m_2) = A_hat_1.shape, A_hat_2.shape
-    E_hat_1 = np.linalg.svd(np.eye(A_hat_1.shape[0]) - A_hat_1 @ A_hat_1.T, full_matrices=False)[0][:, : d_1 - m_1]
-    E_hat_2 = np.linalg.svd(np.eye(A_hat_2.shape[0]) - A_hat_2 @ A_hat_2.T, full_matrices=False)[0][:, : d_2 - m_2]
+    E_hat_1 = subspaces.principal_subspace_basis(np.eye(d_1) - A_hat_1 @ A_hat_1.T, d_1 - m_1)
+    E_hat_2 = subspaces.principal_subspace_basis(np.eye(d_2) - A_hat_2 @ A_hat_2.T, d_2 - m_2)
 
     X_test_projected_A_1, X_test_projected_E_1 = X_test @ A_hat_1, X_test @ E_hat_1
     Z_test_projected_A_2, Z_test_projected_E_2 = Z_test @ A_hat_2, Z_test @ E_hat_2

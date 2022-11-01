@@ -18,6 +18,7 @@ from latte.models.mine import mine
 from latte.models.mist import mist
 from latte.modules.data import datamodules as dm
 from latte.manifolds import utils as mutils
+from latte.utils import subspaces
 
 
 @dataclass
@@ -383,8 +384,8 @@ def fit(
         estimator=best_model,
         A_1=A_hat_x,
         A_2=A_hat_z,
-        E_1=torch.linalg.svd(torch.eye(A_hat_x.shape[0]) - A_hat_x @ A_hat_x.T, full_matrices=False)[0][:, : d_x - m_x],
-        E_2=torch.linalg.svd(torch.eye(A_hat_z.shape[0]) - A_hat_z @ A_hat_z.T, full_matrices=False)[0][:, : d_z - m_z],
+        E_1=subspaces.principal_subspace_basis(torch.eye(d_x) - A_hat_x @ A_hat_x.T, d_x - m_x),
+        E_2=subspaces.principal_subspace_basis(torch.eye(d_x) - A_hat_z @ A_hat_z.T, d_z - m_z),
     )
 
     return mi_estimate

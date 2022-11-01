@@ -258,7 +258,7 @@ def _process_subspace(
     rng = np.random.default_rng(rng)
 
     evaluation_ixs = rng.choice(len(Z), size=cfg.estimation_N, replace=False)
-    latte_ksg_evaluation_ixs = rng.choice(len(Z), size=4000, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z), size=8000, replace=False)
 
     # `subspace_size` only refers to the dimensionality of the subspace the "maximisation matrix" projects onto
     # In case this function is called with the "erasing" matrix, we keep that dimensionality for logging,
@@ -612,7 +612,7 @@ def _process_factors_of_interest(
     # To find out how much information about the factors of interest there is in the entire learned representation
     # space, we train a MIST model on the entire space
     evaluation_ixs = rng.choice(len(Z["val"]), size=cfg.estimation_N, replace=False)
-    latte_ksg_evaluation_ixs = rng.choice(len(Z["val"]), size=4000, replace=False)
+    latte_ksg_evaluation_ixs = rng.choice(len(Z["val"]), size=8000, replace=False)
     _determine_factor_mutual_information(
         Z=Z["val"],
         Y=Y["val"],

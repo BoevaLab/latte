@@ -28,7 +28,12 @@ class RLACEResult:
 
 
 def fit(
-    X: np.ndarray, Z: np.ndarray, rlace_params: Dict[str, Any], p_train: float = 0.8, rng: RandomGenerator = 1
+    X: np.ndarray,
+    Z: np.ndarray,
+    rlace_params: Dict[str, Any],
+    p_train: float = 0.8,
+    ksg_N: int = 8000,
+    rng: RandomGenerator = 1,
 ) -> RLACEResult:
     """
     Main function of the module.
@@ -39,6 +44,7 @@ def fit(
         Z: Corresponding samples of the distribution in regard to which the mutual information should be maximised.
         rlace_params: Parameters for training the `rLACE` model.
         p_train: Proportion of the training data.
+        ksg_N: Number of datapoints to use for estimating the MI in the subspace using the KSG estimator.
         rng: The random generator.
 
     Returns:
@@ -66,7 +72,8 @@ def fit(
 
     # Construct the result
     rng = np.random.default_rng(rng)
-    mi_estimation_ix = rng.choice(len(Z_test), min(8000, len(Z_test)), replace=False)
+    mi_estimation_ix = rng.choice(len(Z_test), min(ksg_N, len(Z_test)), replace=False)
+    # TODO (Pawel): Generalise the KSG estimation to other than 5 neighbours.
     mi_estimate = RLACEResult(
         mutual_information=ksg.estimate_mi_ksg(
             X_test_projected_A[mi_estimation_ix].numpy(),
