@@ -385,7 +385,7 @@ def fit(
         A_1=A_hat_x,
         A_2=A_hat_z,
         E_1=subspaces.principal_subspace_basis(torch.eye(d_x) - A_hat_x @ A_hat_x.T, d_x - m_x),
-        E_2=subspaces.principal_subspace_basis(torch.eye(d_x) - A_hat_z @ A_hat_z.T, d_z - m_z),
+        E_2=subspaces.principal_subspace_basis(torch.eye(d_z) - A_hat_z @ A_hat_z.T, d_z - m_z),
     )
 
     return mi_estimate
