@@ -1,7 +1,7 @@
 [tool.black]
 include = '''
 /(
-     latte
+     src
    | scripts
    | tests
 )/
@@ -23,7 +23,7 @@ exclude = '''
 '''
 
 [tool.pytest.ini_options]
-addopts = "--cov=latte"
+addopts = "--cov=src/latte"
 testpaths = [
     "tests",
 ]
