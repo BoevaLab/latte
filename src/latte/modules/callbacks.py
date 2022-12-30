@@ -11,12 +11,15 @@ from pythae.trainers import training_callbacks
 
 try:
     from torch.utils.tensorboard import SummaryWriter
+
     _SUMMARY_WRITER_DISABLED = False
 except ModuleNotFoundError:
     warnings.warn("Tensorboard needs to be installed to make SummaryWriter work.")
     _SUMMARY_WRITER_DISABLED = True
+
     class SummaryWriter:
         pass
+
 
 from latte.models.mine.mine import MINE, StandaloneMINE
 
