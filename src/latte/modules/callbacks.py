@@ -3,12 +3,20 @@ Implementations of various callbacks used throughout `Latte`, either in training
 """
 
 import copy
+import warnings
 from collections import defaultdict
 
 import pytorch_lightning as pl
-from torch.utils.tensorboard import SummaryWriter
-
 from pythae.trainers import training_callbacks
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    _SUMMARY_WRITER_DISABLED = False
+except ModuleNotFoundError:
+    warnings.warn("Tensorboard needs to be installed to make SummaryWriter work.")
+    _SUMMARY_WRITER_DISABLED = True
+    class SummaryWriter:
+        pass
 
 from latte.models.mine.mine import MINE, StandaloneMINE
 
@@ -50,6 +58,9 @@ class TensorboardCallback(training_callbacks.TrainingCallback):
     """
 
     def __init__(self):
+        if _SUMMARY_WRITER_DISABLED:
+            raise ModuleNotFoundError("You need to install Tensorboard to use this callback.")
+
         self.is_initialized = False
         self.summary_writer = None
 
